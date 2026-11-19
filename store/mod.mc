@@ -1,4 +1,4 @@
-// store — JSON load/save for TaskStore.
+// store — JSON load/save/merge for TaskStore (idiomatic %C).
 import "model";
 import "json";
 import "fs";
@@ -13,21 +13,13 @@ import "str";
 #include <stddef.h>
 #include <stdint.h>
 
-static void field_set(char[..] dst, const char *src) {
-	size_t n = cap(dst);
-	if (ptr(dst) == NULL || n == 0) {
-		return;
-	}
-	(void)snprintf(ptr(dst), n, "%s", src != NULL ? src : "");
-}
-
-static const char *obj_str(const JsonValue *obj, const char *key) {
+static const char[..] obj_str(const JsonValue *obj, const char *key) {
 	if (obj == NULL || key == NULL) {
-		return "";
+		return str_from_cstr("");
 	}
 	const JsonValue *v = json_object_get(obj, key);
 	const char *s = json_string_value(v);
-	return s != NULL ? s : "";
+	return str_from_cstr(s != NULL ? s : "");
 }
 
 bool store_default_path(char[..] dst) {
@@ -36,7 +28,7 @@ bool store_default_path(char[..] dst) {
 		return false;
 	}
 	if (env_ok && len(env) > 0) {
-		(void)snprintf(ptr(dst), cap(dst), "%s", env);
+		(void)cstr_write(dst, env);
 		return true;
 	}
 	pool p {
@@ -52,7 +44,7 @@ bool store_default_path(char[..] dst) {
 		if (!fok) {
 			return false;
 		}
-		(void)snprintf(ptr(dst), cap(dst), "%s", file);
+		(void)cstr_write(dst, file);
 		return true;
 	}
 }
@@ -91,13 +83,9 @@ static (char[..], bool) read_file_all(const char[..] path) {
 	return (data, true);
 }
 
-bool store_load(TaskStore *store, const char[..] path) {
+bool (TaskStore *store).load(const char[..] path) {
 	JsonError err = {0};
-	size_t i = 0;
-	if (store == NULL) {
-		return false;
-	}
-	model_init(store);
+	store.init();
 	auto (text, tok) = read_file_all(path);
 	if (!tok) {
 		return false;
@@ -115,38 +103,34 @@ bool store_load(TaskStore *store, const char[..] path) {
 	if (tasks == NULL || tasks.type != JSON_ARRAY) {
 		return true;
 	}
-	for (; i < json_array_size(tasks); i++) {
+	for (size_t i = 0; i < json_array_size(tasks); i++) {
 		const JsonValue *item = json_array_get(tasks, i);
 		Task t = {0};
 		if (item == NULL || item.type != JSON_OBJECT) {
 			continue;
 		}
-		field_set(ranged(t.id, sizeof(t.id)), obj_str(item, "id"));
-		field_set(ranged(t.status, sizeof(t.status)), obj_str(item, "status"));
-		field_set(ranged(t.category, sizeof(t.category)), obj_str(item, "category"));
-		field_set(ranged(t.title, sizeof(t.title)), obj_str(item, "title"));
-		field_set(ranged(t.cc, sizeof(t.cc)), obj_str(item, "cc"));
-		field_set(ranged(t.due, sizeof(t.due)), obj_str(item, "due"));
-		field_set(ranged(t.notes, sizeof(t.notes)), obj_str(item, "notes"));
-		field_set(ranged(t.updated, sizeof(t.updated)), obj_str(item, "updated"));
-		if (strlen(t.title) == 0 && strlen(t.id) == 0) {
+		(void)str_set(&t.id, obj_str(item, "id"));
+		(void)str_set(&t.status, obj_str(item, "status"));
+		(void)str_set(&t.title, obj_str(item, "title"));
+		(void)str_set(&t.cc, obj_str(item, "cc"));
+		(void)str_set(&t.updated, obj_str(item, "updated"));
+		if (len(t.title) == 0 && len(t.id) == 0) {
+			t.clear();
 			continue;
 		}
-		if (!model_add(store, &t)) {
+		if (!store.add(&t)) {
+			t.clear();
 			break;
 		}
+		t.clear(); /* add deep-copied; drop temps */
 	}
 	store.dirty = false;
-	model_sort(store);
+	store.sort();
 	return true;
 }
 
-bool store_save(TaskStore *store, const char[..] path) {
+bool (TaskStore *store).save(const char[..] path) {
 	char tmp[1024] = {0};
-	int i = 0;
-	if (store == NULL) {
-		return false;
-	}
 	if (!store_ensure_parent_dir(path)) {
 		return false;
 	}
@@ -166,20 +150,17 @@ bool store_save(TaskStore *store, const char[..] path) {
 		return false;
 	}
 	arr = json_object_get_mutable(root, "tasks");
-	for (; i < store.count; i++) {
+	for (int i = 0; i < store.count; i++) {
 		Task *t = &store.tasks[i];
 		JsonValue *obj = json_new_object();
 		if (obj == NULL) {
 			return false;
 		}
-		if (!json_object_set(obj, "id", json_new_string(t.id)) ||
-			!json_object_set(obj, "status", json_new_string(t.status)) ||
-			!json_object_set(obj, "category", json_new_string(t.category)) ||
-			!json_object_set(obj, "title", json_new_string(t.title)) ||
-			!json_object_set(obj, "cc", json_new_string(t.cc)) ||
-			!json_object_set(obj, "due", json_new_string(t.due)) ||
-			!json_object_set(obj, "notes", json_new_string(t.notes)) ||
-			!json_object_set(obj, "updated", json_new_string(t.updated))) {
+		if (!json_object_set(obj, "id", json_new_string_n(ptr(t.id), len(t.id))) ||
+			!json_object_set(obj, "status", json_new_string_n(ptr(t.status), len(t.status))) ||
+			!json_object_set(obj, "title", json_new_string_n(ptr(t.title), len(t.title))) ||
+			!json_object_set(obj, "cc", json_new_string_n(ptr(t.cc), len(t.cc))) ||
+			!json_object_set(obj, "updated", json_new_string_n(ptr(t.updated), len(t.updated)))) {
 			json_free(obj);
 			return false;
 		}
@@ -192,102 +173,120 @@ bool store_save(TaskStore *store, const char[..] path) {
 		return false;
 	}
 	defer free(text);
-	(void)snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-	{
-		auto (w, wok) = writer_open(ranged(tmp, strlen(tmp)), OpenWrite | OpenCreate | OpenTrunc, 0);
-		if (!wok) {
+	pool p {
+		char[..] tmp_path = {0};
+		if (!p.append(&tmp_path, path) || !p.append(&tmp_path, ".tmp")) {
 			return false;
 		}
-		defer w.close();
-		auto (n, ok) = w.write(str_from_cstr(text));
-		if (!ok || n != (int64_t)strlen(text)) {
+		(void)cstr_write(ranged(tmp, sizeof(tmp)), tmp_path);
+		{
+			auto (w, wok) = writer_open(ranged(tmp, strlen(tmp)), OpenWrite | OpenCreate | OpenTrunc, 0);
+			if (!wok) {
+				return false;
+			}
+			defer w.close();
+			const char[..] body = str_from_cstr(text);
+			auto (n, ok) = w.write(body);
+			if (!ok || n != (int64_t)len(body)) {
+				return false;
+			}
+			if (!w.flush()) {
+				return false;
+			}
+		}
+		if (!fs_rename(ranged(tmp, strlen(tmp)), path)) {
+			(void)fs_remove(ranged(tmp, strlen(tmp)));
 			return false;
 		}
-		if (!w.flush()) {
-			return false;
-		}
-	}
-	if (!fs_rename(ranged(tmp, strlen(tmp)), path)) {
-		(void)fs_remove(ranged(tmp, strlen(tmp)));
-		return false;
 	}
 	store.dirty = false;
 	return true;
 }
 
-bool store_import_file(TaskStore *store, const char[..] src, const char[..] dst) {
-	/* Static: TaskStore is too large for a QBE stack frame. */
-	static TaskStore seed;
-	model_init(&seed);
-	if (!store_load(&seed, src)) {
+bool store_load(TaskStore *store, const char[..] path) {
+	if (store == NULL) {
 		return false;
 	}
-	/* Merge into existing dest when present; otherwise seed becomes the DB. */
-	if (!store_load(store, dst)) {
-		model_init(store);
-	}
-	(void)store_merge(store, &seed);
-	store.dirty = true;
-	return store_save(store, dst);
+	return store.load(path);
 }
 
-static int store_find_id(const TaskStore *store, const char *id) {
-	int i = 0;
-	if (store == NULL || id == NULL || strlen(id) == 0) {
+bool store_save(TaskStore *store, const char[..] path) {
+	if (store == NULL) {
+		return false;
+	}
+	return store.save(path);
+}
+
+bool store_import_file(TaskStore *store, const char[..] src, const char[..] dst) {
+	static TaskStore seed;
+	if (store == NULL) {
+		return false;
+	}
+	seed.init();
+	if (!seed.load(src)) {
+		return false;
+	}
+	if (!store.load(dst)) {
+		store.init();
+	}
+	(void)store.merge(&seed);
+	store.dirty = true;
+	return store.save(dst);
+}
+
+static int store_find_id(const TaskStore *store, const char[..] id) {
+	if (store == NULL || len(id) == 0) {
 		return -1;
 	}
-	for (; i < store.count; i++) {
-		if (strcmp(store.tasks[i].id, id) == 0) {
+	for (int i = 0; i < store.count; i++) {
+		if (str_eq(store.tasks[i].id, id)) {
 			return i;
 		}
 	}
 	return -1;
 }
 
-/* ISO-8601 timestamps from model_touch; empty counts as oldest. */
-static int updated_cmp(const char *a, const char *b) {
-	bool a_empty = a == NULL || strlen(a) == 0;
-	bool b_empty = b == NULL || strlen(b) == 0;
-	if (a_empty && b_empty) {
+static int updated_cmp(const char[..] a, const char[..] b) {
+	if (len(a) == 0 && len(b) == 0) {
 		return 0;
 	}
-	if (a_empty) {
+	if (len(a) == 0) {
 		return -1;
 	}
-	if (b_empty) {
+	if (len(b) == 0) {
 		return 1;
 	}
-	return strcmp(a, b);
+	return str_cmp(a, b);
 }
 
-/*
- * Task-level last-write-wins merge by id + updated.
- * Incoming tasks newer than local replace; incoming-only tasks are appended.
- * Local-only tasks are kept. Equal updated keeps local (stable).
- * Returns true if local changed.
- */
-bool store_merge(TaskStore *local, const TaskStore *incoming) {
-	int i = 0;
+bool (TaskStore *local).merge(const TaskStore *incoming) {
 	bool changed = false;
-	if (local == NULL || incoming == NULL) {
+	if (incoming == NULL) {
 		return false;
 	}
-	for (; i < incoming.count; i++) {
+	for (int i = 0; i < incoming.count; i++) {
 		const Task *src = &incoming.tasks[i];
 		int at = store_find_id(local, src.id);
 		if (at < 0) {
-			Task copy = *src;
-			if (!model_add(local, &copy)) {
+			if (!local.add(src)) {
 				break;
 			}
 			changed = true;
 			continue;
 		}
 		if (updated_cmp(src.updated, local.tasks[at].updated) > 0) {
-			local.tasks[at] = *src;
+			if (!local.replace(at, src)) {
+				break;
+			}
 			changed = true;
-			local.dirty = true;
 		}
 	}
 	return changed;
+}
+
+bool store_merge(TaskStore *local, const TaskStore *incoming) {
+	if (local == NULL) {
+		return false;
+	}
+	return local.merge(incoming);
 }

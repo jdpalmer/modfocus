@@ -20,12 +20,11 @@ import "fs";
 enum AppEditKind {
 	EditNone = 0,
 	EditTitle = 1,
-	EditDue = 2,
-	EditNotes = 3,
-	EditCc = 4,
-	EditFilterText = 5,
-	EditNewTitle = 6,
-	EditFilterCc = 7
+	EditCc = 2,
+	EditFilterText = 3,
+	EditNewAttn = 4,
+	EditNewTitle = 5,
+	EditFilterCc = 6
 };
 
 struct App {
@@ -35,6 +34,7 @@ struct App {
 	int visible_count;
 	UiState ui;
 	char db_path[1024];
+	char new_attn[TaskCcCap]; /* stashed between new-task Attn → title prompts */
 	AppEditKind edit_kind;
 	bool running;
 	bool import_only;
@@ -44,27 +44,31 @@ struct App {
 
 static App g_app;
 
+static char[..] db_path_view() {
+	return ranged(g_app.db_path, strlen(g_app.db_path));
+}
+
 static void note_db_mtime() {
-	auto (info, ok) = fs_stat(ranged(g_app.db_path, strlen(g_app.db_path)));
+	auto (info, ok) = fs_stat(db_path_view());
 	g_app.db_mtime_ok = ok;
 	g_app.db_mtime_ns = ok ? info.mtime_ns : 0;
 }
 
 static void refresh_visible() {
-	g_app.visible_count = model_build_visible(&g_app.store, &g_app.filter,
+	g_app.visible_count = g_app.store.build_visible(&g_app.filter,
 		ranged(g_app.visible, VisibleMax));
 	g_app.ui.visible_count = g_app.visible_count;
 	ui_clamp(&g_app.ui);
 }
 
-static void select_task_id(const char *id) {
+static void select_task_id(const char[..] id) {
 	int i = 0;
-	if (id == NULL || strlen(id) == 0) {
+	if (len(id) == 0) {
 		return;
 	}
 	for (; i < g_app.visible_count; i++) {
-		Task *t = model_get(&g_app.store, g_app.visible[i]);
-		if (t != NULL && strcmp(t.id, id) == 0) {
+		Task *t = g_app.store.get(g_app.visible[i]);
+		if (t != NULL && str_eq(t.id, id)) {
 			g_app.ui.selected = i;
 			ui_clamp(&g_app.ui);
 			return;
@@ -72,13 +76,20 @@ static void select_task_id(const char *id) {
 	}
 }
 
+static void capture_id(char[..] dst, const Task *t) {
+	cstr_reset(dst);
+	if (t != NULL) {
+		(void)cstr_write(dst, t.id);
+	}
+}
+
 static void mark_saved() {
 	ui_set_status(&g_app.ui, "saved");
 }
 
-/* Persist without clobbering a status/category flash message. */
+/* Persist without clobbering a status flash message. */
 static bool save_db_quiet() {
-	if (!store_save(&g_app.store, ranged(g_app.db_path, strlen(g_app.db_path)))) {
+	if (!g_app.store.save(db_path_view())) {
 		ui_set_status(&g_app.ui, "save failed");
 		return false;
 	}
@@ -102,30 +113,27 @@ static bool maybe_reload_db() {
 	if (g_app.ui.editing) {
 		return false;
 	}
-	auto (info, ok) = fs_stat(ranged(g_app.db_path, strlen(g_app.db_path)));
+	auto (info, ok) = fs_stat(db_path_view());
 	if (!ok) {
 		return false;
 	}
 	if (g_app.db_mtime_ok && info.mtime_ns == g_app.db_mtime_ns) {
 		return false;
 	}
-	Task *cur = ui_selected_task(&g_app.ui);
-	if (cur != NULL) {
-		snprintf(id, sizeof(id), "%s", cur.id);
-	}
-	if (!store_load(&g_incoming, ranged(g_app.db_path, strlen(g_app.db_path)))) {
+	capture_id(ranged(id, sizeof(id)), ui_selected_task(&g_app.ui));
+	if (!g_incoming.load(db_path_view())) {
 		/* Keep last-good mtime so a partial Syncthing write is retried. */
 		ui_set_status(&g_app.ui, "reload failed");
 		return true;
 	}
-	bool changed = store_merge(&g_app.store, &g_incoming);
+	bool changed = g_app.store.merge(&g_incoming);
 	note_db_mtime();
 	if (changed) {
 		(void)save_db_quiet();
 		ui_set_status(&g_app.ui, "merged");
 	}
 	refresh_visible();
-	select_task_id(id);
+	select_task_id(ranged(id, cstr_zlen(ranged(id, sizeof(id)))));
 	return true;
 }
 
@@ -133,13 +141,14 @@ static void crash_cleanup() {
 	term_close();
 }
 
-static void begin_edit(AppEditKind kind, const char *prompt, const char *initial) {
+static void begin_edit(AppEditKind kind, const char[..] prompt, const char[..] initial) {
 	g_app.edit_kind = kind;
 	ui_begin_edit(&g_app.ui, prompt, initial);
 }
 
 static void cancel_edit() {
 	g_app.edit_kind = EditNone;
+	g_app.new_attn[0] = 0;
 	ui_end_edit(&g_app.ui);
 }
 
@@ -149,53 +158,62 @@ static bool val_is_all(const char[..] val) {
 
 static void apply_edit() {
 	int idx = ui_selected_store_index(&g_app.ui);
-	char valbuf[TaskNotesCap] = {0};
+	char valbuf[TaskTitleCap] = {0};
 	AppEditKind kind = g_app.edit_kind;
 	snprintf(valbuf, sizeof(valbuf), "%s", g_app.ui.input);
 	const char[..] val = ranged(valbuf, strlen(valbuf));
 	g_app.edit_kind = EditNone;
 	ui_end_edit(&g_app.ui);
 	if (kind == EditFilterText) {
-		snprintf(g_app.filter.text, sizeof(g_app.filter.text), "%s", valbuf);
+		(void)str_set(&g_app.filter.text, val);
 		refresh_visible();
 		ui_set_status(&g_app.ui, "filter set");
 		return;
 	}
 	if (kind == EditFilterCc) {
 		if (val_is_all(val)) {
-			snprintf(g_app.filter.cc, sizeof(g_app.filter.cc), "%s", "");
+			(void)str_set(&g_app.filter.cc, "");
 			ui_set_status(&g_app.ui, "focus cleared");
 		} else {
-			snprintf(g_app.filter.cc, sizeof(g_app.filter.cc), "%s", valbuf);
+			(void)str_set(&g_app.filter.cc, val);
 			ui_set_status(&g_app.ui, "focus set");
 		}
 		refresh_visible();
 		return;
 	}
+	if (kind == EditNewAttn) {
+		snprintf(g_app.new_attn, sizeof(g_app.new_attn), "%s", valbuf);
+		begin_edit(EditNewTitle, "new task: ", "");
+		return;
+	}
 	if (kind == EditNewTitle) {
 		Task t = {0};
+		char id[TaskIdCap] = {0};
 		if (len(val) == 0) {
+			g_app.new_attn[0] = 0;
 			ui_set_status(&g_app.ui, "cancelled");
 			return;
 		}
-		snprintf(t.title, sizeof(t.title), "%s", valbuf);
-		snprintf(t.status, sizeof(t.status), "A:Next");
-		snprintf(t.category, sizeof(t.category), "Other");
-		if (!model_add(&g_app.store, &t)) {
+		(void)str_set(&t.title, val);
+		(void)str_set(&t.status, "A:Now");
+		if (!g_app.store.add(&t)) {
+			t.clear();
+			g_app.new_attn[0] = 0;
 			ui_set_status(&g_app.ui, "add failed");
 			return;
 		}
-		refresh_visible();
-		{
-			int i = 0;
-			for (; i < g_app.visible_count; i++) {
-				Task *x = model_get(&g_app.store, g_app.visible[i]);
-				if (x != NULL && strcmp(x.title, valbuf) == 0) {
-					g_app.ui.selected = i;
-					break;
-				}
-			}
+		t.clear();
+		int at = g_app.store.count - 1;
+		if (at >= 0 && strlen(g_app.new_attn) != 0) {
+			g_app.store.set_cc(at, ranged(g_app.new_attn, strlen(g_app.new_attn)));
 		}
+		g_app.new_attn[0] = 0;
+		if (at >= 0) {
+			capture_id(ranged(id, sizeof(id)), &g_app.store.tasks[at]);
+		}
+		refresh_visible();
+		select_task_id(ranged(id, cstr_zlen(ranged(id, sizeof(id)))));
+		ui_set_status(&g_app.ui, "added");
 		save_db();
 		return;
 	}
@@ -208,13 +226,9 @@ static void apply_edit() {
 			ui_set_status(&g_app.ui, "cancelled");
 			return;
 		}
-		model_set_title(&g_app.store, idx, valbuf);
-	} else if (kind == EditDue) {
-		model_set_due(&g_app.store, idx, valbuf);
-	} else if (kind == EditNotes) {
-		model_set_notes(&g_app.store, idx, valbuf);
+		g_app.store.set_title(idx, val);
 	} else if (kind == EditCc) {
-		model_set_cc(&g_app.store, idx, valbuf);
+		g_app.store.set_cc(idx, val);
 	}
 	save_db();
 }
@@ -273,43 +287,51 @@ static void handle_normal_key(uint32_t key) {
 	}
 	if (key == 'o') {
 		/* Explicit reorder — edits leave list order alone so rows don't jump. */
-		Task *cur = ui_selected_task(&g_app.ui);
 		char id[TaskIdCap] = {0};
-		if (cur != NULL) {
-			snprintf(id, sizeof(id), "%s", cur.id);
-		}
-		model_sort(&g_app.store);
+		capture_id(ranged(id, sizeof(id)), ui_selected_task(&g_app.ui));
+		g_app.store.sort();
 		refresh_visible();
-		select_task_id(id);
+		select_task_id(ranged(id, cstr_zlen(ranged(id, sizeof(id)))));
 		ui_set_status(&g_app.ui, "sorted");
 		return;
 	}
 	if (key == '/') {
-		begin_edit(EditFilterText, "find: ", g_app.filter.text);
+		/* Toggle: clear find if set; otherwise prompt (same idea as f). */
+		if (len(g_app.filter.text) != 0) {
+			(void)str_set(&g_app.filter.text, "");
+			refresh_visible();
+			ui_set_status(&g_app.ui, "find cleared");
+			return;
+		}
+		begin_edit(EditFilterText, "find: ", "");
 		return;
 	}
 	if (key == 'n') {
-		begin_edit(EditNewTitle, "new task: ", "");
+		/* Prefill Attn from the selected row (meeting burst / same-person add). */
+		Task *cur = ui_selected_task(&g_app.ui);
+		const char[..] pre = (cur != NULL && len(cur.cc) != 0) ? cur.cc : str_from_cstr("");
+		g_app.new_attn[0] = 0;
+		begin_edit(EditNewAttn, "new attn (Tab completes): ", pre);
 		return;
 	}
 	int idx = ui_selected_store_index(&g_app.ui);
 	Task *t = ui_selected_task(&g_app.ui);
 	if (key == 'f') {
 		/* Toggle: clear focus if set; otherwise prompt for CC substring. */
-		if (strlen(g_app.filter.cc) != 0) {
-			snprintf(g_app.filter.cc, sizeof(g_app.filter.cc), "%s", "");
+		if (len(g_app.filter.cc) != 0) {
+			(void)str_set(&g_app.filter.cc, "");
 			refresh_visible();
 			ui_set_status(&g_app.ui, "focus cleared");
 			return;
 		}
-		begin_edit(EditFilterCc, "focus attn (* for all): ", "");
+		begin_edit(EditFilterCc, "focus (Tab completes): ", "");
 		return;
 	}
 	if (idx < 0 || t == NULL) {
 		return;
 	}
 	if (key == 's') {
-		model_cycle_status(&g_app.store, idx);
+		g_app.store.cycle_status(idx);
 		refresh_visible();
 		ui_set_status(&g_app.ui, t.status);
 		save_db_quiet();
@@ -317,7 +339,7 @@ static void handle_normal_key(uint32_t key) {
 	}
 	if (key == 'x') {
 		/* Mark complete (hidden from default view unless X). */
-		model_set_status(&g_app.store, idx, "E:Complete");
+		g_app.store.set_status(idx, "E:Complete");
 		refresh_visible();
 		ui_set_status(&g_app.ui, g_app.filter.show_complete
 			? "marked E:Complete"
@@ -325,28 +347,62 @@ static void handle_normal_key(uint32_t key) {
 		save_db_quiet();
 		return;
 	}
-	if (key == 'c') {
-		model_cycle_category(&g_app.store, idx);
-		refresh_visible();
-		ui_set_status(&g_app.ui, t.category);
-		save_db_quiet();
-		return;
-	}
 	if (key == 't' || key == (uint32_t)TermKeyEnter) {
 		begin_edit(EditTitle, "title: ", t.title);
-		return;
-	}
-	if (key == 'd') {
-		begin_edit(EditDue, "due: ", t.due);
-		return;
-	}
-	if (key == 'w') {
-		begin_edit(EditNotes, "writeup: ", t.notes);
 		return;
 	}
 	if (key == 'a') {
 		begin_edit(EditCc, "attn: ", t.cc);
 		return;
+	}
+}
+
+/* Tab-complete the Attn token at the caret (comma-separated short names). */
+static void complete_attn_token() {
+	UiState *ui = &g_app.ui;
+	int start = ui.input_cursor;
+	int end = ui.input_cursor;
+	char prefix[64] = {0};
+	char done[64] = {0};
+	while (start > 0 && ui.input[start - 1] != ',') {
+		start--;
+	}
+	while (start < end && (ui.input[start] == ' ' || ui.input[start] == '\t')) {
+		start++;
+	}
+	while (end < ui.input_len && ui.input[end] != ',') {
+		end++;
+	}
+	int plen = end - start;
+	if (plen < 0) {
+		plen = 0;
+	}
+	if (plen >= (int)sizeof(prefix)) {
+		plen = (int)sizeof(prefix) - 1;
+	}
+	if (plen > 0) {
+		memcpy(prefix, ui.input + start, plen);
+	}
+	prefix[plen] = 0;
+	if (!g_app.store.attn_complete(ranged(prefix, (size_t)plen), ranged(done, sizeof(done)))) {
+		return;
+	}
+	{
+		int dlen = (int)cstr_zlen(ranged(done, sizeof(done)));
+		int new_len = ui.input_len - (end - start) + dlen;
+		char buf[sizeof(ui.input)] = {0};
+		if (new_len < 0 || new_len >= (int)sizeof(ui.input)) {
+			return;
+		}
+		if (start > 0) {
+			memcpy(buf, ui.input, start);
+		}
+		memcpy(buf + start, done, dlen);
+		memcpy(buf + start + dlen, ui.input + end, ui.input_len - end);
+		buf[new_len] = 0;
+		memcpy(ui.input, buf, new_len + 1);
+		ui.input_len = new_len;
+		ui.input_cursor = start + dlen;
 	}
 }
 
@@ -367,8 +423,14 @@ static void handle_event(Event *ev) {
 	if (ev.kind == EventKey) {
 		uint32_t key = ev.key_code;
 		if (g_app.ui.editing) {
+			if ((g_app.edit_kind == EditFilterCc || g_app.edit_kind == EditCc ||
+					g_app.edit_kind == EditNewAttn) &&
+				(key == '\t' || key == (uint32_t)TermKeyTab)) {
+				complete_attn_token();
+				return;
+			}
 			if (ui_edit_handle_key(&g_app.ui, key)) {
-				if (g_app.ui.input_len == 0 && key == 0x1B) {
+				if (g_app.ui.edit_cancelled) {
 					cancel_edit();
 					ui_set_status(&g_app.ui, "cancelled");
 				} else {
@@ -405,7 +467,7 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 				fprintf(stderr, "q2: --db needs a path\n");
 				return false;
 			}
-			snprintf(g_app.db_path, sizeof(g_app.db_path), "%s", args[i]);
+			(void)cstr_write(ranged(g_app.db_path, sizeof(g_app.db_path)), args[i]);
 			continue;
 		}
 		if (str_eq(a, "--import")) {
@@ -414,11 +476,11 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 				fprintf(stderr, "q2: --import needs a path\n");
 				return false;
 			}
-			(void)snprintf(ptr(import_path), cap(import_path), "%s", args[i]);
+			(void)cstr_write(import_path, args[i]);
 			g_app.import_only = true;
 			continue;
 		}
-		fprintf(stderr, "q2: unknown arg %s\n", a);
+		fprintf(stderr, "q2: unknown arg %.*s\n", (int)len(a), ptr(a));
 		usage();
 		return false;
 	}
@@ -428,8 +490,8 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 void app_run(const char[..][..] args) {
 	char import_path[1024] = {0};
 	memset(&g_app, 0, sizeof(g_app));
-	model_init(&g_app.store);
-	model_filter_init(&g_app.filter);
+	g_app.store.init();
+	g_app.filter.init();
 	ui_init(&g_app.ui, &g_app.store, &g_app.filter, ranged(g_app.visible, VisibleMax));
 	g_app.edit_kind = EditNone;
 	g_app.running = true;
@@ -444,7 +506,7 @@ void app_run(const char[..][..] args) {
 	if (strlen(import_path) != 0) {
 		if (!store_import_file(&g_app.store,
 			ranged(import_path, strlen(import_path)),
-			ranged(g_app.db_path, strlen(g_app.db_path)))) {
+			db_path_view())) {
 			fprintf(stderr, "q2: import failed: %s\n", import_path);
 			return;
 		}
@@ -452,9 +514,9 @@ void app_run(const char[..][..] args) {
 		if (g_app.import_only) {
 			return;
 		}
-	} else if (!store_load(&g_app.store, ranged(g_app.db_path, strlen(g_app.db_path)))) {
+	} else if (!g_app.store.load(db_path_view())) {
 		/* start empty */
-		model_init(&g_app.store);
+		g_app.store.init();
 		ui_set_status(&g_app.ui, "new database");
 	}
 	note_db_mtime();

@@ -59,6 +59,7 @@ TextStyle screen_style_header() {
 }
 
 TextStyle screen_style_status(char letter) {
+	/* A:Now … F:Someday; Complete muted so Someday stays distinct. */
 	TermColor fg = TermColorBase0;
 	if (letter == 'A') {
 		fg = TermColorRed;
@@ -69,11 +70,9 @@ TextStyle screen_style_status(char letter) {
 	} else if (letter == 'D') {
 		fg = TermColorMagenta;
 	} else if (letter == 'E') {
-		fg = TermColorCyan;
+		fg = TermColorBase01; /* Complete — quiet */
 	} else if (letter == 'F') {
-		fg = TermColorBlue;
-	} else if (letter == 'G') {
-		fg = TermColorBase01;
+		fg = TermColorCyan; /* Someday */
 	}
 	return text_style_make(fg, TermColorBase03, (uint16_t)TextStyleBold);
 }

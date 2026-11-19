@@ -1,11 +1,14 @@
 # q2
 
-Terminal task organizer for status, category, due dates, attention, and notes —
-a spreadsheet-style workflow that stays in the shell.
+Terminal task organizer for status and attention — a spreadsheet-style
+workflow that stays in the shell.
 
-Each task has a fixed status and category vocabulary, a title, due date, who
-it’s for (Attn), and a writeup. Completed items stay out of the way until you
-ask for them. Find and focus filters keep a long list usable.
+Each task has a status, a title, and who it’s for (Attn). Priority statuses
+are time horizons: `A:Now` (this week — keep it small), `B:Soon`, `C:Later`,
+then `D:Waiting` (ball in their court — Attn says who), then `F:Someday`.
+Attn is comma-separated short names (`Charles`, `Brian, Jessica`). Completed
+items stay out of the way until you ask for them. Find and focus filters keep
+a long list usable; Tab completes Attn names while focusing or editing Attn.
 
 ## Requirements
 
@@ -37,24 +40,24 @@ different fields of the same task still resolve as one whole task).
 
 ## Keys
 
-Red letters in the column and writeup headers mark the shortcut for that field.
+Red letters mark shortcuts: column keys in the header; footer right uses the
+same style (`new`, `focus`/`unfocus`, `/find`/`/clear`, `sort`, `xdone`, `Xall`,
+`quit`). Footer left is view state (`visible/total`, `A:n`, focus, find, flash).
+If `A:Now` is over 7 it shows red `A:n:demote?`.
 
 | Key | Action |
 |-----|--------|
 | arrows / `C-n` / `C-p` | Move |
 | `S-Up` / `S-Down` / PgUp / PgDn / `C-v` | Page |
 | `s` | Cycle status (skips Complete) |
-| `c` | Cycle category |
 | `x` | Mark complete (hidden unless showing complete) |
 | `X` | Toggle showing completed tasks |
-| `o` | Sort (status → category → title) |
+| `o` | Sort (status → Attn → title) |
 | `t` / Enter | Edit title |
-| `d` | Edit due |
-| `a` | Edit Attn |
-| `w` | Edit writeup |
-| `n` | New task |
-| `/` | Find across fields |
-| `f` | Focus by Attn (`*` clears) |
+| `a` | Edit Attn (comma-separated short names; Tab completes) |
+| `n` | New task (Attn prefilled from current row, then title) |
+| `/` | Find across fields (press again to clear) |
+| `f` | Focus by Attn (press again to clear; Tab completes) |
 | `g` / `G` | Top / bottom |
 | `q` | Quit |
 

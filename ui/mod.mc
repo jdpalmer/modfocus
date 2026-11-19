@@ -1,4 +1,4 @@
-// ui — planner paint: filters, table, notes, footer.
+// ui — planner paint: filters, table, footer.
 import "model";
 import "screen";
 import "style";
@@ -14,7 +14,7 @@ import "str";
 enum {
 	UiColHeaderRow = 0,
 	UiFooterRows = 1,
-	UiNotesMin = 3
+	UiInputCap = TaskTitleCap
 };
 
 struct UiState {
@@ -26,10 +26,11 @@ struct UiState {
 	int scroll;
 	char mode_line[160];
 	char prompt[80];
-	char input[TaskNotesCap];
+	char input[UiInputCap];
 	int input_len;
 	int input_cursor; /* caret within input[0..input_len] */
 	bool editing;
+	bool edit_cancelled; /* true when Esc / C-g finished the prompt */
 };
 
 void ui_init(UiState *ui, TaskStore *store, ViewFilter *filter, int[..] visible) {
@@ -45,48 +46,40 @@ void ui_init(UiState *ui, TaskStore *store, ViewFilter *filter, int[..] visible)
 	snprintf(ui.mode_line, sizeof(ui.mode_line), "q2");
 }
 
-void ui_set_status(UiState *ui, const char *msg) {
+void ui_set_status(UiState *ui, const char[..] msg) {
 	if (ui == NULL) {
 		return;
 	}
-	snprintf(ui.mode_line, sizeof(ui.mode_line), "%s", msg != NULL ? msg : "");
+	(void)cstr_write(ranged(ui.mode_line, sizeof(ui.mode_line)), msg);
 }
 
-static void put_clipped(int row, int col, int width, const char *text, TextStyle st) {
+static void put_clipped(int row, int col, int width, const char[..] text, TextStyle st) {
 	int i = 0;
 	if (width <= 0) {
 		return;
 	}
-	if (text == NULL) {
-		text = "";
-	}
-	const char[..] view = ranged(text, strlen(text));
 	for (; i < width; i++) {
 		char ch = ' ';
-		if (i < (int)len(view)) {
-			ch = view[i];
+		if (i < (int)len(text)) {
+			ch = text[i];
 		}
 		screen_put_rune(row, col + i, ch, st);
 	}
 }
 
 /* WordPerfect-style: paint label with mnemonic letter in red+bold (same bg). */
-static void put_mnemonic(int row, int col, int width, const char *text, char mnemonic, TextStyle st) {
+static void put_mnemonic(int row, int col, int width, const char[..] text, char mnemonic, TextStyle st) {
 	int marked = -1;
 	char want = mnemonic;
 	TextStyle hot = text_style_make(TermColorRed, text_style_bg(st), (uint16_t)TextStyleBold);
 	if (width <= 0) {
 		return;
 	}
-	if (text == NULL) {
-		text = "";
-	}
 	if (want >= 'A' && want <= 'Z') {
 		want = (char)(want - 'A' + 'a');
 	}
-	const char[..] view = ranged(text, strlen(text));
-	for (int i = 0; i < (int)len(view); i++) {
-		char ch = view[i];
+	for (int i = 0; i < (int)len(text); i++) {
+		char ch = text[i];
 		char low = ch;
 		if (low >= 'A' && low <= 'Z') {
 			low = (char)(low - 'A' + 'a');
@@ -99,8 +92,8 @@ static void put_mnemonic(int row, int col, int width, const char *text, char mne
 	for (int i = 0; i < width; i++) {
 		char ch = ' ';
 		TextStyle use = st;
-		if (i < (int)len(view)) {
-			ch = view[i];
+		if (i < (int)len(text)) {
+			ch = text[i];
 			if (i == marked) {
 				use = hot;
 			}
@@ -113,20 +106,8 @@ static int table_top() {
 	return UiColHeaderRow + 1;
 }
 
-static int notes_height(int rows) {
-	int h = rows / 5;
-	if (h < UiNotesMin) {
-		h = UiNotesMin;
-	}
-	if (h > 8) {
-		h = 8;
-	}
-	return h;
-}
-
 static int table_height(int rows) {
-	int notes = notes_height(rows);
-	int h = rows - table_top() - notes - UiFooterRows;
+	int h = rows - table_top() - UiFooterRows;
 	if (h < 3) {
 		h = 3;
 	}
@@ -172,7 +153,7 @@ Task *ui_selected_task(UiState *ui) {
 		return NULL;
 	}
 	int idx = ui.visible[ui.selected];
-	return model_get(ui.store, idx);
+	return ui.store.get(idx);
 }
 
 int ui_selected_store_index(UiState *ui) {
@@ -185,53 +166,38 @@ int ui_selected_store_index(UiState *ui) {
 	return ui.visible[ui.selected];
 }
 
-static void col_widths(int cols, int *w_status, int *w_cat, int *w_task, int *w_due, int *w_cc) {
-	int status = 18;
-	int cat = 14;
-	int due = 10;
-	int cc = 18;
-	int gaps = 4;
-	int task = cols - status - cat - due - cc - gaps;
+static void col_widths(int cols, int *w_status, int *w_task, int *w_cc) {
+	/* Status vocab is short (A:Now … F:Someday); keep title room. */
+	int status = 10;
+	int cc = 16;
+	int gaps = 2;
+	int task = cols - status - cc - gaps;
 	if (task < 16) {
 		cc = 12;
-		task = cols - status - cat - due - cc - gaps;
-	}
-	if (task < 16) {
-		due = 0;
-		task = cols - status - cat - due - cc - (due > 0 ? gaps : gaps - 1);
+		task = cols - status - cc - gaps;
 	}
 	if (task < 12) {
 		task = 12;
 	}
 	*w_status = status;
-	*w_cat = cat;
 	*w_task = task;
-	*w_due = due;
 	*w_cc = cc;
 }
 
 static void paint_col_header(int cols) {
 	TextStyle st = screen_style_header();
 	int w_status = 0;
-	int w_cat = 0;
 	int w_task = 0;
-	int w_due = 0;
 	int w_cc = 0;
 	int c = 0;
-	col_widths(cols, &w_status, &w_cat, &w_task, &w_due, &w_cc);
+	col_widths(cols, &w_status, &w_task, &w_cc);
 	screen_fill_row(UiColHeaderRow, st);
 	put_mnemonic(UiColHeaderRow, c, w_status, "Status", 's', st);
 	c += w_status + 1;
-	put_mnemonic(UiColHeaderRow, c, w_cat, "Category", 'c', st);
-	c += w_cat + 1;
-	put_mnemonic(UiColHeaderRow, c, w_task, "Task", 't', st);
-	c += w_task + 1;
-	if (w_due > 0) {
-		put_mnemonic(UiColHeaderRow, c, w_due, "Due", 'd', st);
-		c += w_due + 1;
-	}
-	/* Attn ↔ key a (CC field); first letter matches binding. */
+	/* Attn before Task — who, then what. */
 	put_mnemonic(UiColHeaderRow, c, w_cc, "Attn", 'a', st);
+	c += w_cc + 1;
+	put_mnemonic(UiColHeaderRow, c, w_task, "Task", 't', st);
 }
 
 static void paint_table(UiState *ui, int cols) {
@@ -239,12 +205,10 @@ static void paint_table(UiState *ui, int cols) {
 	int th = table_height(screen_rows());
 	int row = 0;
 	int w_status = 0;
-	int w_cat = 0;
 	int w_task = 0;
-	int w_due = 0;
 	int w_cc = 0;
 	TextStyle def = screen_style_default();
-	col_widths(cols, &w_status, &w_cat, &w_task, &w_due, &w_cc);
+	col_widths(cols, &w_status, &w_task, &w_cc);
 	for (; row < th; row++) {
 		int vi = ui.scroll + row;
 		int screen_row = top + row;
@@ -256,102 +220,211 @@ static void paint_table(UiState *ui, int cols) {
 		if (vi < 0 || vi >= ui.visible_count) {
 			continue;
 		}
-		t = model_get(ui.store, ui.visible[vi]);
+		t = ui.store.get(ui.visible[vi]);
 		if (t == NULL) {
 			continue;
 		}
+		bool done = str_eq_cstr(t.status, "E:Complete");
 		if (vi == ui.selected) {
 			st = screen_style_selected();
 			screen_fill_row(screen_row, st);
+		} else if (done) {
+			/* Whole-row dim so open tasks pop when +C is on. */
+			st = text_style_make(TermColorBase01, TermColorBase03, 0);
+			screen_fill_row(screen_row, st);
 		}
-		if (t.status[0] != 0) {
+		if (len(t.status) > 0) {
 			letter = t.status[0];
 		}
 		{
-			TextStyle sst = vi == ui.selected ? st : screen_style_status(letter);
+			TextStyle sst = st;
+			if (vi != ui.selected && !done) {
+				sst = screen_style_status(letter);
+			}
 			put_clipped(screen_row, c, w_status, t.status, sst);
 		}
 		c += w_status + 1;
-		put_clipped(screen_row, c, w_cat, t.category, st);
-		c += w_cat + 1;
-		put_clipped(screen_row, c, w_task, t.title, st);
-		c += w_task + 1;
-		if (w_due > 0) {
-			put_clipped(screen_row, c, w_due, t.due, st);
-			c += w_due + 1;
+		{
+			/* Empty Attn: dim "-"; on Waiting, red so the hole is obvious. */
+			const char[..] attn = len(t.cc) == 0 ? str_from_cstr("-") : t.cc;
+			TextStyle attn_st = st;
+			if (len(t.cc) == 0) {
+				TermColor bg = text_style_bg(st);
+				if (str_eq_cstr(t.status, "D:Waiting")) {
+					attn_st = text_style_make(TermColorRed, bg, (uint16_t)TextStyleBold);
+				} else {
+					attn_st = text_style_make(TermColorBase01, bg, 0);
+				}
+			}
+			put_clipped(screen_row, c, w_cc, attn, attn_st);
 		}
-		put_clipped(screen_row, c, w_cc, t.cc, st);
+		c += w_cc + 1;
+		put_clipped(screen_row, c, w_task, t.title, st);
 	}
 }
 
-static void paint_notes(UiState *ui, int cols) {
-	int rows = screen_rows();
-	int nh = notes_height(rows);
-	int top = table_top() + table_height(rows);
-	TextStyle hdr = screen_style_header();
-	TextStyle def = screen_style_default();
-	Task *t = ui_selected_task(ui);
-	char rest[512] = {0};
-	int label_cols = 8; /* "Writeup" */
-	screen_fill_row(top, hdr);
-	/* Writeup ↔ key w */
-	put_mnemonic(top, 1, label_cols, "Writeup", 'w', hdr);
-	if (t != NULL) {
-		snprintf(rest, sizeof(rest), " | Attn: %s", strlen(t.cc) ? t.cc : "-");
-	} else {
-		snprintf(rest, sizeof(rest), "%s", "");
+static int count_status(const TaskStore *store, const char[..] status) {
+	int n = 0;
+	int i = 0;
+	if (store == NULL) {
+		return 0;
 	}
-	put_clipped(top, 1 + label_cols, cols - (1 + label_cols), rest, hdr);
-	for (int i = 1; i < nh; i++) {
-		int screen_row = top + i;
-		int off = (i - 1) * (cols > 2 ? cols - 2 : 1);
-		screen_fill_row(screen_row, def);
-		if (t == NULL || strlen(t.notes) == 0) {
-			continue;
+	for (; i < store.count; i++) {
+		if (str_eq(store.tasks[i].status, status)) {
+			n++;
 		}
-		const char[..] notes = ranged(t.notes, strlen(t.notes));
-		if (off >= (int)len(notes)) {
-			continue;
+	}
+	return n;
+}
+
+/* Red single-key glyph (narrow footer fallback). */
+static void put_hot_key(int row, int col, char key, TextStyle st) {
+	TextStyle hot = text_style_make(TermColorRed, text_style_bg(st), (uint16_t)TextStyleBold);
+	screen_put_rune(row, col, key, hot);
+}
+
+static int footer_hints_width(bool focus_on, bool find_on, bool compact) {
+	if (compact) {
+		return (int)strlen("n f / o x X q");
+	}
+	/* focus(5) vs unfocus(7); /find vs /clear same width */
+	(void)find_on;
+	int f_len = focus_on ? 7 : 5;
+	/* new + focus|unfocus + /find + sort + xdone + Xall + quit + gaps */
+	return 3 + 1 + f_len + 1 + 5 + 1 + 4 + 1 + 5 + 1 + 4 + 1 + 4;
+}
+
+static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bool find_on,
+	bool compact) {
+	if (compact) {
+		char keys[] = "n f / o x X q";
+		const char[..] keyv = ranged(keys, sizeof(keys) - 1);
+		for (int i = 0; i < (int)len(keyv); i++) {
+			char ch = keyv[i];
+			if (ch == ' ') {
+				screen_put_rune(row, col + i, ' ', st);
+			} else {
+				put_hot_key(row, col + i, ch, st);
+			}
 		}
-		put_clipped(screen_row, 1, cols - 2, ptr(notes) + off, def);
+		return;
+	}
+	const char *focus_lab = focus_on ? "unfocus" : "focus";
+	const char *find_lab = find_on ? "/clear" : "/find";
+	const char *labs[] = {"new", focus_lab, find_lab, "sort", "xdone", "Xall", "quit"};
+	char mnems[] = {'n', 'f', '/', 'o', 'x', 'X', 'q'};
+	int c = col;
+	for (int i = 0; i < 7; i++) {
+		int w = (int)strlen(labs[i]);
+		if (i > 0) {
+			screen_put_rune(row, c, ' ', st);
+			c++;
+		}
+		put_mnemonic(row, c, w, str_from_cstr(labs[i]), mnems[i], st);
+		c += w;
 	}
 }
+
+enum {
+	ANowSoftCap = 7
+};
 
 static void paint_footer(UiState *ui, int cols) {
 	int row = screen_rows() - 1;
 	TextStyle st = screen_style_header();
+	TextStyle a_hot = text_style_make(TermColorRed, text_style_bg(st), (uint16_t)TextStyleBold);
+	char pre[64] = {0};
+	char a_bit[48] = {0};
+	char rest[192] = {0};
 	char line[512] = {0};
-	char summary[240] = {0};
 	int total = ui.store != NULL ? ui.store.count : 0;
+	int a_now = count_status(ui.store, "A:Now");
+	bool focus_on = ui.filter != NULL && len(ui.filter.cc) != 0;
+	bool find_on = ui.filter != NULL && len(ui.filter.text) != 0;
+	bool a_over = a_now > ANowSoftCap;
+	bool compact = false;
+	int rn = 0;
 	screen_fill_row(row, st);
 	if (ui.editing) {
 		snprintf(line, sizeof(line), " %s%s", ui.prompt, ui.input);
-		put_clipped(row, 0, cols, line, st);
+		put_clipped(row, 0, cols, ranged(line, strlen(line)), st);
 		return;
 	}
-	int n = snprintf(summary, sizeof(summary), "%d/%d", ui.visible_count, total);
-	if (n < 0) {
-		n = 0;
+	snprintf(pre, sizeof(pre), "q2 %d/%d ", ui.visible_count, total);
+	if (a_over) {
+		snprintf(a_bit, sizeof(a_bit), "A:%d:demote?", a_now);
+	} else {
+		snprintf(a_bit, sizeof(a_bit), "A:%d", a_now);
 	}
 	if (ui.filter != NULL) {
-		if (strlen(ui.filter.cc) != 0 && n < (int)sizeof(summary)) {
-			n += snprintf(summary + n, sizeof(summary) - (size_t)n, " @%s", ui.filter.cc);
+		if (focus_on && rn < (int)sizeof(rest)) {
+			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " @%.*s",
+				(int)len(ui.filter.cc), ptr(ui.filter.cc));
 		}
-		if (ui.filter.show_complete && n < (int)sizeof(summary)) {
-			n += snprintf(summary + n, sizeof(summary) - (size_t)n, " +C");
+		if (ui.filter.show_complete && rn < (int)sizeof(rest)) {
+			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " +C");
 		}
-		if (strlen(ui.filter.text) != 0 && n < (int)sizeof(summary)) {
-			n += snprintf(summary + n, sizeof(summary) - (size_t)n, " /%s", ui.filter.text);
+		if (find_on && rn < (int)sizeof(rest)) {
+			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " /%.*s",
+				(int)len(ui.filter.text), ptr(ui.filter.text));
 		}
 	}
-	if (strlen(ui.mode_line) != 0 && n < (int)sizeof(summary)) {
-		n += snprintf(summary + n, sizeof(summary) - (size_t)n, " %s", ui.mode_line);
+	if (strlen(ui.mode_line) != 0 && rn < (int)sizeof(rest)) {
+		rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " %s", ui.mode_line);
 	}
-	(void)n;
-	snprintf(line, sizeof(line),
-		" %s | x/X complete  (n)ew  s(o)rt  (f)ocus  (/)find  (q)uit",
-		summary);
-	put_clipped(row, 0, cols, line, st);
+	(void)rn;
+	int right_cols = footer_hints_width(focus_on, find_on, false) + 1;
+	if (cols - right_cols < 12) {
+		compact = true;
+		right_cols = footer_hints_width(focus_on, find_on, true) + 1;
+	}
+	int left_cols = cols - right_cols;
+	if (left_cols < 8) {
+		left_cols = cols;
+		right_cols = 0;
+	}
+	{
+		int c = 0;
+		int pre_w = (int)strlen(pre);
+		int a_w = (int)strlen(a_bit);
+		int rest_w = (int)strlen(rest);
+		put_clipped(row, c, 1, " ", st);
+		c = 1;
+		if (c < left_cols && pre_w > 0) {
+			int w = pre_w;
+			if (c + w > left_cols) {
+				w = left_cols - c;
+			}
+			put_clipped(row, c, w, ranged(pre, (size_t)pre_w), st);
+			c += w;
+		}
+		if (c < left_cols && a_w > 0) {
+			int w = a_w;
+			if (c + w > left_cols) {
+				w = left_cols - c;
+			}
+			put_clipped(row, c, w, ranged(a_bit, (size_t)a_w), a_over ? a_hot : st);
+			c += w;
+		}
+		if (c < left_cols && rest_w > 0) {
+			int w = rest_w;
+			if (c + w > left_cols) {
+				w = left_cols - c;
+			}
+			put_clipped(row, c, w, ranged(rest, (size_t)rest_w), st);
+			c += w;
+		}
+		if (c < left_cols) {
+			put_clipped(row, c, left_cols - c, "", st);
+		}
+	}
+	if (right_cols > 0) {
+		int c = cols - (right_cols - 1);
+		if (c < left_cols) {
+			c = left_cols;
+		}
+		paint_footer_hints(row, c, st, focus_on, find_on, compact);
+	}
 }
 
 void ui_paint(UiState *ui) {
@@ -365,7 +438,6 @@ void ui_paint(UiState *ui) {
 	 * (jem display lesson); a full clear dirties every row each frame. */
 	paint_col_header(cols);
 	paint_table(ui, cols);
-	paint_notes(ui, cols);
 	paint_footer(ui, cols);
 	if (ui.editing) {
 		int cursor_row = screen_rows() - 1;
@@ -383,14 +455,15 @@ void ui_paint(UiState *ui) {
 	}
 }
 
-void ui_begin_edit(UiState *ui, const char *prompt, const char *initial) {
+void ui_begin_edit(UiState *ui, const char[..] prompt, const char[..] initial) {
 	if (ui == NULL) {
 		return;
 	}
 	ui.editing = true;
-	snprintf(ui.prompt, sizeof(ui.prompt), "%s", prompt != NULL ? prompt : "");
-	snprintf(ui.input, sizeof(ui.input), "%s", initial != NULL ? initial : "");
-	ui.input_len = (int)strlen(ui.input);
+	ui.edit_cancelled = false;
+	(void)cstr_write(ranged(ui.prompt, sizeof(ui.prompt)), prompt);
+	(void)cstr_write(ranged(ui.input, sizeof(ui.input)), initial);
+	ui.input_len = (int)cstr_zlen(ranged(ui.input, sizeof(ui.input)));
 	ui.input_cursor = ui.input_len;
 }
 
@@ -399,6 +472,7 @@ void ui_end_edit(UiState *ui) {
 		return;
 	}
 	ui.editing = false;
+	ui.edit_cancelled = false;
 	ui.prompt[0] = 0;
 	ui.input[0] = 0;
 	ui.input_len = 0;
@@ -435,12 +509,11 @@ bool ui_edit_handle_key(UiState *ui, uint32_t key) {
 	}
 	if (key == (uint32_t)TermKeyEnter || key == '\r' || key == '\n' ||
 		key_is_ctl(key, 'M') || key_is_ctl(key, 'J')) {
-		return true; /* finished */
+		ui.edit_cancelled = false;
+		return true; /* accept */
 	}
 	if (key == 0x1B || key_is_ctl(key, 'G')) { /* escape / C-g cancel */
-		ui.input[0] = 0;
-		ui.input_len = 0;
-		ui.input_cursor = 0;
+		ui.edit_cancelled = true;
 		return true;
 	}
 	/* Motion — jem/emacs style */
