@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+
+# Editors / IDEs
+.cursor/
+.vscode/
+.idea/
+.vs/
+
+# Object / intermediate
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.dll
+*.d
+*.dSYM/
+*.su
+*.pdb
+core
+vgcore.*
+
+# modc
+.modc-cache/
+**/.modc-cache/
+*.pkg.mc
+*.pkg.meta
+*.pkg.o
+**/.pkg.mc
+**/.pkg.meta
+**/.pkg.o
+
+# Built binary / default modc output
+/q2
+/build/
+*.exe
+*.out
+
+# Local data / exports (DB lives under Q2DB / Syncthing)
+/tasks.seed.json
+/Tasks.xlsx
+*.xlsx
+*.json.tmp
+*.bak
+*.backup
