@@ -605,6 +605,15 @@ void app_run(const char[..][..] args) {
 			need_paint = true;
 			continue;
 		}
+		/* Proactive resize: jem paints every tick and catches size via ioctl in
+		 * display_update. We only paint on demand, so poll size here — many
+		 * hosts never send a resize CSI (or only after the next key). */
+		if (term_refresh_size()) {
+			screen_ensure_size();
+			screen_invalidate();
+			need_paint = true;
+			continue;
+		}
 		{
 			/* Resize CSI enqueues EventResize with no key; jem continues when
 			 * the queue is non-empty so those events are not stranded. */
