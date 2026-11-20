@@ -11,12 +11,17 @@ Completed items stay out of the way until you ask for them. Find and focus
 filters keep a long list usable; Tab completes Attn names while focusing or
 editing Attn.
 
-## Requirements
+## Install
 
-- [`modc`](https://github.com/jdpalmer/modc) and `modc-qbe` on `PATH`
-- A terminal with the Kitty keyboard protocol (Kitty, Ghostty, and similar)
+```bash
+brew install jdpalmer/tap/perfectfocus
+```
+
+Needs a terminal with the Kitty keyboard protocol (Kitty, Ghostty, and similar).
 
 ## Build
+
+Requires [`modc`](https://github.com/jdpalmer/modc) and `modc-qbe` on `PATH`:
 
 ```bash
 modc build -M . -o pf
