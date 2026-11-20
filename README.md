@@ -66,6 +66,7 @@ flash). If `B:Now` is over 7 it shows red `B:n:demote?`.
 | `/` | Find across fields (press again to clear) |
 | `f` | Focus by Attn (press again to clear; Tab completes) |
 | `g` / `G` | Top / bottom |
+| `C-l` | Redraw |
 | `q` | Quit |
 
 While editing: arrows / `C-b` `C-f` move; `C-a`/`Home` start; `C-e`/`End` end;

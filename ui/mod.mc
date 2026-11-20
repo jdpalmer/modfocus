@@ -431,6 +431,11 @@ void ui_paint(UiState *ui) {
 	if (ui == NULL) {
 		return;
 	}
+	/* jem display_update: refresh size every paint so resize is not only
+	 * dependent on a CSI event being dequeued. */
+	if (term_refresh_size()) {
+		screen_invalidate();
+	}
 	screen_ensure_size();
 	int cols = screen_cols();
 	ui_clamp(ui);

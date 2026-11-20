@@ -441,6 +441,12 @@ static void handle_event(Event *ev) {
 	}
 	if (ev.kind == EventKey) {
 		uint32_t key = ev.key_code;
+		/* jem: C-l → cmd_refresh / display_invalidate */
+		if (key == ((uint32_t)TermCTL | (uint32_t)'L') ||
+			key == (uint32_t)('L' - '@')) {
+			screen_invalidate();
+			return;
+		}
 		if (g_app.ui.editing) {
 			if (g_app.edit_kind == EditKillConfirm) {
 				int idx = g_app.kill_idx;
@@ -600,10 +606,14 @@ void app_run(const char[..][..] args) {
 			continue;
 		}
 		{
+			/* Resize CSI enqueues EventResize with no key; jem continues when
+			 * the queue is non-empty so those events are not stranded. */
 			auto (key, ok) = term_try_read_key(100);
 			if (ok) {
 				event_enqueue(event_key(key));
-				need_paint = true;
+			}
+			if (ok || event_queue_len() > 0) {
+				continue;
 			}
 		}
 	}
