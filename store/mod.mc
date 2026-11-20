@@ -23,7 +23,7 @@ static const char[..] obj_str(const JsonValue *obj, const char *key) {
 }
 
 bool store_default_path(char[..] dst) {
-	auto (env_ok, env) = os_env("Q2DB");
+	auto (env_ok, env) = os_env("PFDB");
 	if (ptr(dst) == NULL || cap(dst) == 0) {
 		return false;
 	}
@@ -36,7 +36,7 @@ bool store_default_path(char[..] dst) {
 		if (!cok) {
 			return false;
 		}
-		auto (dir, dok) = path_join(&p, cfg, "q2");
+		auto (dir, dok) = path_join(&p, cfg, "perfectfocus");
 		if (!dok) {
 			return false;
 		}

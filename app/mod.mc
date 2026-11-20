@@ -24,7 +24,8 @@ enum AppEditKind {
 	EditFilterText = 3,
 	EditNewAttn = 4,
 	EditNewTitle = 5,
-	EditFilterCc = 6
+	EditFilterCc = 6,
+	EditKillConfirm = 7
 };
 
 struct App {
@@ -36,6 +37,7 @@ struct App {
 	char db_path[1024];
 	char new_attn[TaskCcCap]; /* stashed between new-task Attn → title prompts */
 	AppEditKind edit_kind;
+	int kill_idx; /* store index pending EditKillConfirm */
 	bool running;
 	bool import_only;
 	int64_t db_mtime_ns;
@@ -148,8 +150,20 @@ static void begin_edit(AppEditKind kind, const char[..] prompt, const char[..] i
 
 static void cancel_edit() {
 	g_app.edit_kind = EditNone;
+	g_app.kill_idx = -1;
 	g_app.new_attn[0] = 0;
 	ui_end_edit(&g_app.ui);
+}
+
+static void do_kill(int idx) {
+	if (!g_app.store.remove(idx)) {
+		ui_set_status(&g_app.ui, "kill failed");
+		return;
+	}
+	refresh_visible();
+	ui_clamp(&g_app.ui);
+	ui_set_status(&g_app.ui, "killed");
+	save_db_quiet();
 }
 
 static bool val_is_all(const char[..] val) {
@@ -195,7 +209,7 @@ static void apply_edit() {
 			return;
 		}
 		(void)str_set(&t.title, val);
-		(void)str_set(&t.status, "A:Now");
+		(void)str_set(&t.status, "A:Inbox");
 		if (!g_app.store.add(&t)) {
 			t.clear();
 			g_app.new_attn[0] = 0;
@@ -339,12 +353,17 @@ static void handle_normal_key(uint32_t key) {
 	}
 	if (key == 'x') {
 		/* Mark complete (hidden from default view unless X). */
-		g_app.store.set_status(idx, "E:Complete");
+		g_app.store.set_status(idx, "F:Complete");
 		refresh_visible();
 		ui_set_status(&g_app.ui, g_app.filter.show_complete
-			? "marked E:Complete"
-			: "marked E:Complete (hidden; X to show)");
+			? "marked F:Complete"
+			: "marked F:Complete (hidden; X to show)");
 		save_db_quiet();
+		return;
+	}
+	if (key == 'k') {
+		g_app.kill_idx = idx;
+		begin_edit(EditKillConfirm, "are you sure? y/n ", "");
 		return;
 	}
 	if (key == 't' || key == (uint32_t)TermKeyEnter) {
@@ -423,6 +442,20 @@ static void handle_event(Event *ev) {
 	if (ev.kind == EventKey) {
 		uint32_t key = ev.key_code;
 		if (g_app.ui.editing) {
+			if (g_app.edit_kind == EditKillConfirm) {
+				int idx = g_app.kill_idx;
+				if (key == 'y' || key == 'Y') {
+					cancel_edit();
+					do_kill(idx);
+				} else if (key == 'n' || key == 'N' || key == 0x1B ||
+					key == ((uint32_t)TermCTL | (uint32_t)'G') ||
+					key == (uint32_t)('G' - '@')) {
+					cancel_edit();
+					ui_set_status(&g_app.ui, "cancelled");
+				}
+				/* ignore other keys until y/n */
+				return;
+			}
 			if ((g_app.edit_kind == EditFilterCc || g_app.edit_kind == EditCc ||
 					g_app.edit_kind == EditNewAttn) &&
 				(key == '\t' || key == (uint32_t)TermKeyTab)) {
@@ -445,8 +478,8 @@ static void handle_event(Event *ev) {
 }
 
 static void usage() {
-	fprintf(stderr, "usage: q2 [--db path] [--import seed.json]\n");
-	fprintf(stderr, "  Q2DB env overrides default config path\n");
+	fprintf(stderr, "usage: pf [--db path] [--import seed.json]\n");
+	fprintf(stderr, "  PFDB env overrides default config path\n");
 	fprintf(stderr, "  Requires a Kitty keyboard protocol terminal (Kitty, Ghostty, ...)\n");
 }
 
@@ -464,7 +497,7 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 		if (str_eq(a, "--db")) {
 			i++;
 			if (i >= len(args)) {
-				fprintf(stderr, "q2: --db needs a path\n");
+				fprintf(stderr, "pf: --db needs a path\n");
 				return false;
 			}
 			(void)cstr_write(ranged(g_app.db_path, sizeof(g_app.db_path)), args[i]);
@@ -473,14 +506,14 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 		if (str_eq(a, "--import")) {
 			i++;
 			if (i >= len(args) || ptr(import_path) == NULL) {
-				fprintf(stderr, "q2: --import needs a path\n");
+				fprintf(stderr, "pf: --import needs a path\n");
 				return false;
 			}
 			(void)cstr_write(import_path, args[i]);
 			g_app.import_only = true;
 			continue;
 		}
-		fprintf(stderr, "q2: unknown arg %.*s\n", (int)len(a), ptr(a));
+		fprintf(stderr, "pf: unknown arg %.*s\n", (int)len(a), ptr(a));
 		usage();
 		return false;
 	}
@@ -494,6 +527,7 @@ void app_run(const char[..][..] args) {
 	g_app.filter.init();
 	ui_init(&g_app.ui, &g_app.store, &g_app.filter, ranged(g_app.visible, VisibleMax));
 	g_app.edit_kind = EditNone;
+	g_app.kill_idx = -1;
 	g_app.running = true;
 
 	if (!store_default_path(ranged(g_app.db_path, sizeof(g_app.db_path)))) {
@@ -507,10 +541,10 @@ void app_run(const char[..][..] args) {
 		if (!store_import_file(&g_app.store,
 			ranged(import_path, strlen(import_path)),
 			db_path_view())) {
-			fprintf(stderr, "q2: import failed: %s\n", import_path);
+			fprintf(stderr, "pf: import failed: %s\n", import_path);
 			return;
 		}
-		fprintf(stderr, "q2: imported %d tasks into %s\n", g_app.store.count, g_app.db_path);
+		fprintf(stderr, "pf: imported %d tasks into %s\n", g_app.store.count, g_app.db_path);
 		if (g_app.import_only) {
 			return;
 		}
@@ -525,7 +559,7 @@ void app_run(const char[..][..] args) {
 
 	crash_init(crash_cleanup);
 	if (!term_open()) {
-		fprintf(stderr, "q2: term_open failed (need a Kitty-protocol TTY)\n");
+		fprintf(stderr, "pf: term_open failed (need a Kitty-protocol TTY)\n");
 		return;
 	}
 	defer term_close();

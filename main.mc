@@ -1,4 +1,4 @@
-// q2 — terminal task planner (%C).
+// PerfectFocus (pf) — terminal task planner (%C).
 import "app";
 
 int main(const char[..][..] args) {

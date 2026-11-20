@@ -677,19 +677,19 @@ bool term_open() {
 	g_fout = fout;
 	g_tty_std_ok = fin_ok && fout_ok;
 	if (!g_tty_std_ok || !tty_isatty(&g_fin)) {
-		fprintf(stderr, "q2: not a TTY\n");
+		fprintf(stderr, "pf: not a TTY\n");
 		return false;
 	}
 	g_is_tty = true;
 	if (!term_query_size(&rows, &cols)) {
-		fprintf(stderr, "q2: could not get terminal size; using 24x80\n");
+		fprintf(stderr, "pf: could not get terminal size; using 24x80\n");
 		rows = 24;
 		cols = 80;
 	}
 	g_rows = rows;
 	g_cols = cols;
 	if (!tty_set_raw(&g_fin)) {
-		fprintf(stderr, "q2: failed to set raw mode\n");
+		fprintf(stderr, "pf: failed to set raw mode\n");
 		g_is_tty = false;
 		g_open = true;
 		return true;
@@ -699,8 +699,8 @@ bool term_open() {
 	if (!term_probe_kitty()) {
 		tty_set_cooked(&g_fin);
 		g_tty_raw = false;
-		fprintf(stderr, "q2: this terminal does not support the Kitty keyboard protocol.\n");
-		fprintf(stderr, "q2: please use Kitty, WezTerm, Ghostty, foot, or Windows Terminal.\n");
+		fprintf(stderr, "pf: this terminal does not support the Kitty keyboard protocol.\n");
+		fprintf(stderr, "pf: please use Kitty, WezTerm, Ghostty, foot, or Windows Terminal.\n");
 		return false;
 	}
 	g_kitty = true;

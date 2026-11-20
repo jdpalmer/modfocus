@@ -43,7 +43,7 @@ void ui_init(UiState *ui, TaskStore *store, ViewFilter *filter, int[..] visible)
 	ui.visible = visible;
 	ui.selected = 0;
 	ui.scroll = 0;
-	snprintf(ui.mode_line, sizeof(ui.mode_line), "q2");
+	snprintf(ui.mode_line, sizeof(ui.mode_line), "pf");
 }
 
 void ui_set_status(UiState *ui, const char[..] msg) {
@@ -67,7 +67,7 @@ static void put_clipped(int row, int col, int width, const char[..] text, TextSt
 	}
 }
 
-/* WordPerfect-style: paint label with mnemonic letter in red+bold (same bg). */
+/* Paint label with mnemonic letter in red+bold (same bg). */
 static void put_mnemonic(int row, int col, int width, const char[..] text, char mnemonic, TextStyle st) {
 	int marked = -1;
 	char want = mnemonic;
@@ -167,7 +167,7 @@ int ui_selected_store_index(UiState *ui) {
 }
 
 static void col_widths(int cols, int *w_status, int *w_task, int *w_cc) {
-	/* Status vocab is short (A:Now … F:Someday); keep title room. */
+	/* Status vocab is short (A:Inbox … G:Someday); keep title room. */
 	int status = 10;
 	int cc = 16;
 	int gaps = 2;
@@ -224,7 +224,7 @@ static void paint_table(UiState *ui, int cols) {
 		if (t == NULL) {
 			continue;
 		}
-		bool done = str_eq_cstr(t.status, "E:Complete");
+		bool done = str_eq_cstr(t.status, "F:Complete");
 		if (vi == ui.selected) {
 			st = screen_style_selected();
 			screen_fill_row(screen_row, st);
@@ -250,7 +250,7 @@ static void paint_table(UiState *ui, int cols) {
 			TextStyle attn_st = st;
 			if (len(t.cc) == 0) {
 				TermColor bg = text_style_bg(st);
-				if (str_eq_cstr(t.status, "D:Waiting")) {
+				if (str_eq_cstr(t.status, "E:Waiting")) {
 					attn_st = text_style_make(TermColorRed, bg, (uint16_t)TextStyleBold);
 				} else {
 					attn_st = text_style_make(TermColorBase01, bg, 0);
@@ -285,19 +285,19 @@ static void put_hot_key(int row, int col, char key, TextStyle st) {
 
 static int footer_hints_width(bool focus_on, bool find_on, bool compact) {
 	if (compact) {
-		return (int)strlen("n f / o x X q");
+		return (int)strlen("n f / o k x X q");
 	}
 	/* focus(5) vs unfocus(7); /find vs /clear same width */
 	(void)find_on;
 	int f_len = focus_on ? 7 : 5;
-	/* new + focus|unfocus + /find + sort + xdone + Xall + quit + gaps */
-	return 3 + 1 + f_len + 1 + 5 + 1 + 4 + 1 + 5 + 1 + 4 + 1 + 4;
+	/* new + focus|unfocus + /find + sort + kill + xdone + Xall + quit + gaps */
+	return 3 + 1 + f_len + 1 + 5 + 1 + 4 + 1 + 4 + 1 + 5 + 1 + 4 + 1 + 4;
 }
 
 static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bool find_on,
 	bool compact) {
 	if (compact) {
-		char keys[] = "n f / o x X q";
+		char keys[] = "n f / o k x X q";
 		const char[..] keyv = ranged(keys, sizeof(keys) - 1);
 		for (int i = 0; i < (int)len(keyv); i++) {
 			char ch = keyv[i];
@@ -311,10 +311,10 @@ static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bo
 	}
 	const char *focus_lab = focus_on ? "unfocus" : "focus";
 	const char *find_lab = find_on ? "/clear" : "/find";
-	const char *labs[] = {"new", focus_lab, find_lab, "sort", "xdone", "Xall", "quit"};
-	char mnems[] = {'n', 'f', '/', 'o', 'x', 'X', 'q'};
+	const char *labs[] = {"new", focus_lab, find_lab, "sort", "kill", "xdone", "Xall", "quit"};
+	char mnems[] = {'n', 'f', '/', 'o', 'k', 'x', 'X', 'q'};
 	int c = col;
-	for (int i = 0; i < 7; i++) {
+	for (int i = 0; i < 8; i++) {
 		int w = (int)strlen(labs[i]);
 		if (i > 0) {
 			screen_put_rune(row, c, ' ', st);
@@ -326,7 +326,7 @@ static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bo
 }
 
 enum {
-	ANowSoftCap = 7
+	NowSoftCap = 7
 };
 
 static void paint_footer(UiState *ui, int cols) {
@@ -338,10 +338,10 @@ static void paint_footer(UiState *ui, int cols) {
 	char rest[192] = {0};
 	char line[512] = {0};
 	int total = ui.store != NULL ? ui.store.count : 0;
-	int a_now = count_status(ui.store, "A:Now");
+	int b_now = count_status(ui.store, "B:Now");
 	bool focus_on = ui.filter != NULL && len(ui.filter.cc) != 0;
 	bool find_on = ui.filter != NULL && len(ui.filter.text) != 0;
-	bool a_over = a_now > ANowSoftCap;
+	bool a_over = b_now > NowSoftCap;
 	bool compact = false;
 	int rn = 0;
 	screen_fill_row(row, st);
@@ -350,11 +350,11 @@ static void paint_footer(UiState *ui, int cols) {
 		put_clipped(row, 0, cols, ranged(line, strlen(line)), st);
 		return;
 	}
-	snprintf(pre, sizeof(pre), "q2 %d/%d ", ui.visible_count, total);
+	snprintf(pre, sizeof(pre), "pf %d/%d ", ui.visible_count, total);
 	if (a_over) {
-		snprintf(a_bit, sizeof(a_bit), "A:%d:demote?", a_now);
+		snprintf(a_bit, sizeof(a_bit), "B:%d:demote?", b_now);
 	} else {
-		snprintf(a_bit, sizeof(a_bit), "A:%d", a_now);
+		snprintf(a_bit, sizeof(a_bit), "B:%d", b_now);
 	}
 	if (ui.filter != NULL) {
 		if (focus_on && rn < (int)sizeof(rest)) {

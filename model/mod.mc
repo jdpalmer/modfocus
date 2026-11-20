@@ -43,12 +43,13 @@ struct ViewFilter {
 
 /* Fixed status vocabulary. Set only via cycle / complete. */
 static const char *g_statuses[] = {
-	"A:Now",
-	"B:Soon",
-	"C:Later",
-	"D:Waiting",
-	"E:Complete",
-	"F:Someday",
+	"A:Inbox",
+	"B:Now",
+	"C:Soon",
+	"D:Later",
+	"E:Waiting",
+	"F:Complete",
+	"G:Someday",
 };
 
 int model_status_count() {
@@ -105,7 +106,7 @@ void (Task *t).clear() {
 void (Task *t).touch() {
 	char buf[40] = {0};
 	int64_t now = time(NULL);
-	struct Q2Tm *tm = gmtime(&now);
+	struct PfTm *tm = gmtime(&now);
 	if (tm == NULL) {
 		(void)field_set_cstr(&t.updated, "0");
 		return;
@@ -175,7 +176,7 @@ bool (TaskStore *store).add(const Task *src) {
 		}
 	}
 	if (len(t.status) == 0) {
-		if (!field_set_cstr(&t.status, "A:Now")) {
+		if (!field_set_cstr(&t.status, "A:Inbox")) {
 			t.clear();
 			return false;
 		}
@@ -184,6 +185,21 @@ bool (TaskStore *store).add(const Task *src) {
 		t.touch();
 	}
 	store.count++;
+	store.dirty = true;
+	return true;
+}
+
+bool (TaskStore *store).remove(int index) {
+	Task *t = store.get(index);
+	if (t == NULL) {
+		return false;
+	}
+	t.clear();
+	for (int i = index; i + 1 < store.count; i++) {
+		store.tasks[i] = store.tasks[i + 1];
+	}
+	memset(&store.tasks[store.count - 1], 0, sizeof(Task));
+	store.count--;
 	store.dirty = true;
 	return true;
 }
@@ -215,7 +231,7 @@ bool (TaskStore *store).cycle_status(int index) {
 	do {
 		i = (i + 1) % n;
 		tries++;
-	} while (tries < n && strcmp(g_statuses[i], "E:Complete") == 0);
+	} while (tries < n && strcmp(g_statuses[i], "F:Complete") == 0);
 	return store.set_status(index, str_from_cstr(g_statuses[i]));
 }
 
@@ -483,7 +499,7 @@ int (TaskStore *store).build_visible(ViewFilter *f, int[..] out) {
 	}
 	for (int i = 0; i < store.count && n < out_cap; i++) {
 		Task *t = &store.tasks[i];
-		if (!f.show_complete && str_eq_cstr(t.status, "E:Complete")) {
+		if (!f.show_complete && str_eq_cstr(t.status, "F:Complete")) {
 			continue;
 		}
 		if (len(f.cc) != 0 && !ascii_icontains(t.cc, f.cc)) {

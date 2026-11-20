@@ -6,7 +6,7 @@
 
 #include <stdint.h>
 
-struct Q2Tm {
+struct PfTm {
 	int tm_sec;
 	int tm_min;
 	int tm_hour;
@@ -21,4 +21,4 @@ struct Q2Tm {
 };
 
 int64_t time(int64_t *tloc);
-struct Q2Tm *gmtime(const int64_t *timer);
+struct PfTm *gmtime(const int64_t *timer);
