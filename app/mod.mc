@@ -211,17 +211,31 @@ static int add_inbox_task(const char[..] title, const char[..] tags, const char[
 	return at;
 }
 
-/* Apply raw title line: split #tags into fields. False if title empty. */
+/* Apply raw title line: split #tags into fields. False if title empty.
+ * Rolls back both fields if either set fails after a partial write. */
 static bool apply_title_line(int idx, const char[..] raw) {
 	pool p {
 		auto (title, tags, ok) = model_parse_title_tags(&p, raw);
-		if (!ok || len(title) == 0) {
+		Task* t = g_app.store.get(idx);
+		char[..] old_title = str_empty();
+		char[..] old_tags = str_empty();
+		if (!ok || len(title) == 0 || t == NULL) {
+			return false;
+		}
+		defer str_free(&old_title);
+		defer str_free(&old_tags);
+		if (!str_set(&old_title, t.title) || !str_set(&old_tags, t.tags)) {
 			return false;
 		}
 		if (!g_app.store.set_title(idx, title)) {
 			return false;
 		}
-		return g_app.store.set_tags(idx, tags);
+		if (!g_app.store.set_tags(idx, tags)) {
+			(void)g_app.store.set_title(idx, old_title);
+			(void)g_app.store.set_tags(idx, old_tags);
+			return false;
+		}
+		return true;
 	}
 }
 
