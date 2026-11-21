@@ -30,6 +30,13 @@ Requires [`modc`](https://github.com/jdpalmer/modc) and `modc-qbe` on `PATH`:
 modc build -M . -o modfocus
 ```
 
+## Test
+
+```bash
+modc test -M . model
+modc test -M . store
+```
+
 ## Run
 
 ```bash
