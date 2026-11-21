@@ -76,6 +76,45 @@ static int test_parse_title_tags() {
 	return 0;
 }
 
+/* Edit/add contract: parse line then set_title/set_tags (empty tags clears). */
+static int test_title_line_apply() {
+	TaskStore store = { 0 };
+	store.init();
+	int at = add_titled(&store, "seed");
+	assert(at >= 0);
+	assert(store.set_tags(at, "#old"));
+	pool p {
+		auto (title, tags, ok) = model_parse_title_tags(&p, "buy milk #home");
+		assert(ok && len(title) > 0);
+		assert(store.set_title(at, title));
+		assert(store.set_tags(at, tags));
+		assert(str_eq(store.tasks[at].title, "buy milk"));
+		assert(str_eq(store.tasks[at].tags, "#home"));
+	}
+	pool p2 {
+		auto (title, tags, ok) = model_parse_title_tags(&p2, "plain title");
+		assert(ok && len(title) > 0);
+		assert(len(tags) == 0);
+		assert(store.set_title(at, title));
+		assert(store.set_tags(at, tags));
+		assert(str_eq(store.tasks[at].title, "plain title"));
+		assert(len(store.tasks[at].tags) == 0);
+	}
+	pool p3 {
+		auto (title, tags, ok) = model_parse_title_tags(&p3, "   ");
+		(void)tags;
+		assert(ok);
+		assert(len(title) == 0);
+	}
+	pool p4 {
+		auto (title, tags, ok) = model_parse_title_tags(&p4, "#only");
+		assert(ok);
+		assert(len(title) == 0);
+		assert(str_eq(tags, "#only"));
+	}
+	return 0;
+}
+
 static int test_format_title_tags() {
 	char buf[128] = { 0 };
 	assert(model_format_title_tags("hello", "#a #b", ranged(buf, sizeof(buf))));
@@ -165,6 +204,7 @@ int main() {
 	assert_eq(test_attn_comma_split(), 0);
 	assert_eq(test_tags_normalize(), 0);
 	assert_eq(test_parse_title_tags(), 0);
+	assert_eq(test_title_line_apply(), 0);
 	assert_eq(test_format_title_tags(), 0);
 	assert_eq(test_attn_complete(), 0);
 	assert_eq(test_tag_complete(), 0);
