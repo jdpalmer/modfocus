@@ -150,6 +150,57 @@ static int test_ensure_parent_dir() {
 	return 0;
 }
 
+static int test_import_file() {
+	pool p {
+		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-import-");
+		assert(dok && len(dir) > 0);
+		defer(void)fs_remove(dir);
+		auto (src, sok) = path_join(&p, dir, "seed.json");
+		auto (dst, dok2) = path_join(&p, dir, "dest.json");
+		assert(sok && dok2);
+		TaskStore seed = { 0 };
+		TaskStore store = { 0 };
+		seed.init();
+		int at = add_titled(&seed, "from seed");
+		assert(at >= 0);
+		assert(str_set(&seed.tasks[at].id, "t42"));
+		assert(str_set(&seed.tasks[at].updated, "2022-01-01T00:00:00Z"));
+		assert(seed.set_cc(at, "Ada"));
+		assert(seed.save(src));
+		/* Missing destination is created. */
+		{
+			auto (info, ok) = fs_stat(dst);
+			assert(!ok || info.kind != KindFile);
+		}
+		store.init();
+		assert(store_import_file(&store, src, dst));
+		assert_eq(store.count, 1);
+		assert(str_eq(store.tasks[0].title, "from seed"));
+		assert(str_eq(store.tasks[0].id, "t42"));
+		{
+			auto (info, ok) = fs_stat(dst);
+			assert(ok && info.kind == KindFile);
+		}
+		/* Re-import with a newer stamp updates the live task and saves. */
+		assert(str_set(&seed.tasks[at].title, "updated seed"));
+		assert(str_set(&seed.tasks[at].updated, "2023-01-01T00:00:00Z"));
+		assert(seed.save(src));
+		assert(store_import_file(&store, src, dst));
+		assert_eq(store.count, 1);
+		assert(str_eq(store.tasks[0].title, "updated seed"));
+		{
+			TaskStore loaded = { 0 };
+			loaded.init();
+			assert(loaded.load(dst));
+			assert_eq(loaded.count, 1);
+			assert(str_eq(loaded.tasks[0].title, "updated seed"));
+		}
+		(void)fs_remove(src);
+		(void)fs_remove(dst);
+	}
+	return 0;
+}
+
 static int test_backup_rotate() {
 	pool p {
 		char title[64] = { 0 };
@@ -226,6 +277,7 @@ int main() {
 	assert_eq(test_save_load_roundtrip(), 0);
 	assert_eq(test_merge_lww(), 0);
 	assert_eq(test_ensure_parent_dir(), 0);
+	assert_eq(test_import_file(), 0);
 	assert_eq(test_backup_rotate(), 0);
 	assert_eq(test_default_path_mfdb(), 0);
 	return 0;
