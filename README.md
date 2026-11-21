@@ -1,7 +1,7 @@
-# PerfectFocus
+# ModFocus
 
 Terminal task organizer for status and attention — a spreadsheet-style
-workflow that stays in the shell. Command: `pf`.
+workflow that stays in the shell. Command: `modfocus`.
 
 Each task has a status, a title, and who it’s for (Attn). New tasks land in
 `A:Inbox` (capture). Then triage with `s`: `B:Now` (this week — keep it
@@ -14,7 +14,7 @@ editing Attn.
 ## Install
 
 ```bash
-brew install jdpalmer/tap/perfectfocus
+brew install jdpalmer/tap/modfocus
 ```
 
 Needs a terminal with the Kitty keyboard protocol (Kitty, Ghostty, and similar).
@@ -24,19 +24,19 @@ Needs a terminal with the Kitty keyboard protocol (Kitty, Ghostty, and similar).
 Requires [`modc`](https://github.com/jdpalmer/modc) and `modc-qbe` on `PATH`:
 
 ```bash
-modc build -M . -o pf
+modc build -M . -o modfocus
 ```
 
 ## Run
 
 ```bash
-./pf
-./pf --db /path/to/tasks.json
-./pf --import seed.json
+./modfocus
+./modfocus --db /path/to/tasks.json
+./modfocus --import seed.json
 ```
 
-Default store: `$PFDB`, or `~/.config/perfectfocus/tasks.json`. Point `--db` /
-`PFDB` at a synced folder if you use the same list on more than one machine.
+Default store: `$MFDB`, or `~/.config/modfocus/tasks.json`. Point `--db` /
+`MFDB` at a synced folder if you use the same list on more than one machine.
 Changes save as you go. Idle reload and `--import` both do **task-level
 last-write-wins** merge by `id` + `updated`: newer whole task wins; equal
 `updated` keeps local; incoming-only tasks are added; local-only tasks stay.

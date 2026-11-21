@@ -484,8 +484,8 @@ static void handle_event(Event *ev) {
 }
 
 static void usage() {
-	fprintf(stderr, "usage: pf [--db path] [--import seed.json]\n");
-	fprintf(stderr, "  PFDB env overrides default config path\n");
+	fprintf(stderr, "usage: modfocus [--db path] [--import seed.json]\n");
+	fprintf(stderr, "  MFDB env overrides default config path\n");
 	fprintf(stderr, "  Requires a Kitty keyboard protocol terminal (Kitty, Ghostty, ...)\n");
 }
 
@@ -503,7 +503,7 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 		if (str_eq(a, "--db")) {
 			i++;
 			if (i >= len(args)) {
-				fprintf(stderr, "pf: --db needs a path\n");
+				fprintf(stderr, "modfocus: --db needs a path\n");
 				return false;
 			}
 			(void)cstr_write(ranged(g_app.db_path, sizeof(g_app.db_path)), args[i]);
@@ -512,14 +512,14 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 		if (str_eq(a, "--import")) {
 			i++;
 			if (i >= len(args) || ptr(import_path) == NULL) {
-				fprintf(stderr, "pf: --import needs a path\n");
+				fprintf(stderr, "modfocus: --import needs a path\n");
 				return false;
 			}
 			(void)cstr_write(import_path, args[i]);
 			g_app.import_only = true;
 			continue;
 		}
-		fprintf(stderr, "pf: unknown arg %.*s\n", (int)len(a), ptr(a));
+		fprintf(stderr, "modfocus: unknown arg %.*s\n", (int)len(a), ptr(a));
 		usage();
 		return false;
 	}
@@ -547,10 +547,10 @@ void app_run(const char[..][..] args) {
 		if (!store_import_file(&g_app.store,
 			ranged(import_path, strlen(import_path)),
 			db_path_view())) {
-			fprintf(stderr, "pf: import failed: %s\n", import_path);
+			fprintf(stderr, "modfocus: import failed: %s\n", import_path);
 			return;
 		}
-		fprintf(stderr, "pf: imported %d tasks into %s\n", g_app.store.count, g_app.db_path);
+		fprintf(stderr, "modfocus: imported %d tasks into %s\n", g_app.store.count, g_app.db_path);
 		if (g_app.import_only) {
 			return;
 		}
@@ -565,7 +565,7 @@ void app_run(const char[..][..] args) {
 
 	crash_init(crash_cleanup);
 	if (!term_open()) {
-		fprintf(stderr, "pf: term_open failed (need a Kitty-protocol TTY)\n");
+		fprintf(stderr, "modfocus: term_open failed (need a Kitty-protocol TTY)\n");
 		return;
 	}
 	defer term_close();

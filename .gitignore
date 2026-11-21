@@ -32,13 +32,14 @@ vgcore.*
 **/.pkg.o
 
 # Built binary / default modc output
+/modfocus
 /pf
 /q2
 /build/
 *.exe
 *.out
 
-# Local data / exports (DB lives under PFDB / Syncthing)
+# Local data / exports (DB lives under MFDB / Syncthing)
 /tasks.seed.json
 /Tasks.xlsx
 *.xlsx
