@@ -156,7 +156,7 @@ static void cancel_edit() {
 	ui_end_edit(&g_app.ui);
 }
 
-/* Format Attn "A, B" as "@A @B " for new-task prefill. */
+/* Format Attn "A, B" as "@A, @B " for new-task / title prefill. */
 static void attn_to_at_prefill(const char[..] cc, char[..] dst) {
 	size_t i = 0;
 	size_t off = 0;
@@ -181,6 +181,10 @@ static void attn_to_at_prefill(const char[..] cc, char[..] dst) {
 		if (end > start) {
 			size_t n = end - start;
 			if (off > 0) {
+				if (off + 2 >= cap(dst)) {
+					break;
+				}
+				dst[off++] = ',';
 				dst[off++] = ' ';
 			}
 			if (off + 1 + n + 1 >= cap(dst)) {
