@@ -198,9 +198,11 @@ static int add_inbox_task(const char[..] title, const char[..] tags, const char[
 		return -1;
 	}
 	if (len(tags) > 0 && !g_app.store.set_tags(at, tags)) {
+		(void)g_app.store.remove(at);
 		return -1;
 	}
 	if (len(attn) > 0 && !g_app.store.set_cc(at, attn)) {
+		(void)g_app.store.remove(at);
 		return -1;
 	}
 	if (ptr(id_out) != NULL && cap(id_out) > 0) {
