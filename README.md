@@ -69,7 +69,7 @@ edits to different fields of the same task still resolve as one whole task).
 
 ## Keys
 
-Red letters mark shortcuts: column keys in the header; footer right uses the
+Blue letters mark shortcuts: column keys in the header; footer right uses the
 same style (`new`, `focus`/`unfocus`, `/find`/`/clear`, `sort`, `kill`, `xdone`,
 `Xall`, `quit`). Footer left is view state (`visible/total`, `B:n`, focus, find,
 flash). If `B:Now` is over 7 it shows red `B:n:demote?`.

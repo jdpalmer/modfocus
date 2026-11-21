@@ -76,11 +76,11 @@ static void put_clipped(int row, int col, int width, const char[..] text, TextSt
 	}
 }
 
-/* Paint label with mnemonic letter in red+bold (same bg). */
+/* Paint label with mnemonic letter in blue+bold (same bg). */
 static void put_mnemonic(int row, int col, int width, const char[..] text, char mnemonic, TextStyle st) {
 	int marked = -1;
 	char want = mnemonic;
-	TextStyle hot = text_style_make(TermColorRed, text_style_bg(st), (uint16_t)TextStyleBold);
+	TextStyle hot = text_style_make(TermColorBlue, text_style_bg(st), (uint16_t)TextStyleBold);
 	if (width <= 0) {
 		return;
 	}
@@ -313,9 +313,9 @@ static int count_status(const TaskStore* store, const char[..] status) {
 	return n;
 }
 
-/* Red single-key glyph (narrow footer fallback). */
+/* Blue single-key glyph (narrow footer fallback). */
 static void put_hot_key(int row, int col, char key, TextStyle st) {
-	TextStyle hot = text_style_make(TermColorRed, text_style_bg(st), (uint16_t)TextStyleBold);
+	TextStyle hot = text_style_make(TermColorBlue, text_style_bg(st), (uint16_t)TextStyleBold);
 	screen_put_rune(row, col, key, hot);
 }
 
