@@ -17,6 +17,11 @@ enum {
 	UiInputCap = TaskTitleCap
 };
 
+/* Root VERSION (no Make step); trailing newline stripped at display time. */
+const char[..] app_version =
+#embed "../VERSION"
+;
+
 struct UiState {
 	TaskStore *store;
 	ViewFilter *filter;
@@ -350,7 +355,15 @@ static void paint_footer(UiState *ui, int cols) {
 		put_clipped(row, 0, cols, ranged(line, strlen(line)), st);
 		return;
 	}
-	snprintf(pre, sizeof(pre), "pf %d/%d ", ui.visible_count, total);
+	{
+		const char[..] ver = app_version;
+		size_t vlen = len(ver);
+		while (vlen > 0 && (ver[vlen - 1] == '\n' || ver[vlen - 1] == '\r')) {
+			vlen--;
+		}
+		snprintf(pre, sizeof(pre), "PerfectFocus %.*s %d/%d ", (int)vlen, ptr(ver),
+			ui.visible_count, total);
+	}
 	if (a_over) {
 		snprintf(a_bit, sizeof(a_bit), "B:%d:demote?", b_now);
 	} else {
