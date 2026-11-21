@@ -37,11 +37,13 @@ modc build -M . -o modfocus
 
 Default store: `$MFDB`, or `~/.config/modfocus/tasks.json`. Point `--db` /
 `MFDB` at a synced folder if you use the same list on more than one machine.
-Changes save as you go. Idle reload and `--import` both do **task-level
-last-write-wins** merge by `id` + `updated`: newer whole task wins; equal
-`updated` keeps local; incoming-only tasks are added; local-only tasks stay.
-There is no delete sync and no field-level merge (concurrent edits to
-different fields of the same task still resolve as one whole task).
+Changes save as you go. Before replacing the DB, ModFocus keeps up to five
+rotating backups beside it (`tasks.json.bak.1` … `.bak.5`, newest first), at
+most one new generation per hour. Idle reload and `--import` both do
+**task-level last-write-wins** merge by `id` + `updated`: newer whole task
+wins; equal `updated` keeps local; incoming-only tasks are added; local-only
+tasks stay. There is no delete sync and no field-level merge (concurrent
+edits to different fields of the same task still resolve as one whole task).
 `--import` creates the destination DB if it is missing.
 
 ## Keys

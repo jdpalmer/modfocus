@@ -12,6 +12,78 @@ import "str";
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "host_time.h"
+
+enum {
+	BackupKeep = 5,
+	BackupMinAgeSec = 3600, /* at most one new generation per hour */
+	BackupPathCap = 1100
+};
+
+/* path.bak.N into dst; false if it would not fit. */
+static bool backup_slot_path(char[..] dst, const char[..] path, int n) {
+	char suf[16] = {0};
+	if (ptr(dst) == NULL || cap(dst) == 0 || n < 1) {
+		return false;
+	}
+	snprintf(suf, sizeof(suf), ".bak.%d", n);
+	size_t need = len(path) + strlen(suf) + 1;
+	if (need > cap(dst)) {
+		return false;
+	}
+	snprintf(ptr(dst), cap(dst), "%.*s%s", (int)len(path), ptr(path), suf);
+	return true;
+}
+
+/* True when we should mint a new bak.1 from the live file. */
+static bool backup_due(const char[..] path) {
+	char bak1[BackupPathCap] = {0};
+	if (!backup_slot_path(ranged(bak1, sizeof(bak1)), path, 1)) {
+		return false;
+	}
+	auto (info, ok) = fs_stat(ranged(bak1, strlen(bak1)));
+	if (!ok || info.kind != KindFile) {
+		return true;
+	}
+	int64_t now = time(NULL);
+	if (now <= 0 || info.mtime_ns <= 0) {
+		return true;
+	}
+	/* mtime_ns is wall-clock ns since epoch. */
+	return now - (info.mtime_ns / 1000000000L) >= BackupMinAgeSec;
+}
+
+/*
+ * Rotate path.bak.(N-1) → path.bak.N, then path → path.bak.1.
+ * Best-effort: failure must not block the subsequent save.
+ */
+static void store_rotate_backups(const char[..] path) {
+	char older[BackupPathCap] = {0};
+	char newer[BackupPathCap] = {0};
+	auto (live, lok) = fs_stat(path);
+	if (!lok || live.kind != KindFile) {
+		return;
+	}
+	if (!backup_due(path)) {
+		return;
+	}
+	for (int i = BackupKeep; i >= 2; i--) {
+		if (!backup_slot_path(ranged(older, sizeof(older)), path, i) ||
+			!backup_slot_path(ranged(newer, sizeof(newer)), path, i - 1)) {
+			return;
+		}
+		(void)fs_remove(ranged(older, strlen(older)));
+		auto (prev, pok) = fs_stat(ranged(newer, strlen(newer)));
+		if (pok && prev.kind == KindFile) {
+			(void)fs_rename(ranged(newer, strlen(newer)), ranged(older, strlen(older)));
+		}
+	}
+	if (!backup_slot_path(ranged(newer, sizeof(newer)), path, 1)) {
+		return;
+	}
+	(void)fs_remove(ranged(newer, strlen(newer)));
+	(void)fs_rename(path, ranged(newer, strlen(newer)));
+}
 
 static const char[..] obj_str(const JsonValue *obj, const char *key) {
 	if (obj == NULL || key == NULL) {
@@ -194,7 +266,18 @@ bool (TaskStore *store).save(const char[..] path) {
 				return false;
 			}
 		}
+		store_rotate_backups(path);
 		if (!fs_rename(ranged(tmp, strlen(tmp)), path)) {
+			/* If we moved the live file to bak.1, try to put it back. */
+			char bak1[BackupPathCap] = {0};
+			if (backup_slot_path(ranged(bak1, sizeof(bak1)), path, 1)) {
+				auto (b, bok) = fs_stat(ranged(bak1, strlen(bak1)));
+				auto (cur, cok) = fs_stat(path);
+				(void)cur;
+				if (bok && b.kind == KindFile && !cok) {
+					(void)fs_rename(ranged(bak1, strlen(bak1)), path);
+				}
+			}
 			(void)fs_remove(ranged(tmp, strlen(tmp)));
 			return false;
 		}
