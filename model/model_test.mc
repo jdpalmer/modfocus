@@ -170,6 +170,39 @@ static int test_cycle_status_skips_complete() {
 	return 0;
 }
 
+static int test_build_visible_text() {
+	TaskStore store = { 0 };
+	ViewFilter f = { 0 };
+	int visible[8] = { 0 };
+	store.init();
+	f.init();
+	int a = add_titled(&store, "buy milk");
+	int b = add_titled(&store, "write docs");
+	int c = add_titled(&store, "other");
+	assert(a >= 0 && b >= 0 && c >= 0);
+	assert(store.set_cc(b, "Ada"));
+	assert(store.set_tags(c, "#errands"));
+	(void)str_set(&f.text, "milk");
+	int n = store.build_visible(&f, ranged(visible, 8));
+	assert_eq(n, 1);
+	assert_eq(visible[0], a);
+	(void)str_set(&f.text, "ada");
+	n = store.build_visible(&f, ranged(visible, 8));
+	assert_eq(n, 1);
+	assert_eq(visible[0], b);
+	(void)str_set(&f.text, "errand");
+	n = store.build_visible(&f, ranged(visible, 8));
+	assert_eq(n, 1);
+	assert_eq(visible[0], c);
+	(void)str_set(&f.text, "inbox");
+	n = store.build_visible(&f, ranged(visible, 8));
+	assert_eq(n, 3);
+	(void)str_set(&f.text, "nomatch");
+	n = store.build_visible(&f, ranged(visible, 8));
+	assert_eq(n, 0);
+	return 0;
+}
+
 static int test_build_visible_focus() {
 	TaskStore store = { 0 };
 	ViewFilter f = { 0 };
@@ -209,6 +242,7 @@ int main() {
 	assert_eq(test_attn_complete(), 0);
 	assert_eq(test_tag_complete(), 0);
 	assert_eq(test_cycle_status_skips_complete(), 0);
+	assert_eq(test_build_visible_text(), 0);
 	assert_eq(test_build_visible_focus(), 0);
 	return 0;
 }
