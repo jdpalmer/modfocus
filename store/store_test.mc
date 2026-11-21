@@ -173,6 +173,35 @@ static int test_ensure_parent_dir() {
 	return 0;
 }
 
+static int test_next_id_after_load() {
+	pool p {
+		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-nextid-");
+		assert(dok && len(dir) > 0);
+		defer(void)fs_remove(dir);
+		auto (db, pok) = path_join(&p, dir, "tasks.json");
+		assert(pok);
+		TaskStore store = { 0 };
+		store.init();
+		int a = add_titled(&store, "first");
+		int b = add_titled(&store, "second");
+		assert(a >= 0 && b >= 0);
+		assert(str_set(&store.tasks[a].id, "t5"));
+		assert(str_set(&store.tasks[b].id, "t12"));
+		assert(store.save(db));
+		TaskStore loaded = { 0 };
+		loaded.init();
+		assert(loaded.load(db));
+		assert_eq(loaded.count, 2);
+		int c = add_titled(&loaded, "third");
+		assert(c >= 0);
+		assert(str_eq(loaded.tasks[c].id, "t13"));
+		assert(!str_eq(loaded.tasks[c].id, "t5"));
+		assert(!str_eq(loaded.tasks[c].id, "t12"));
+		(void)fs_remove(db);
+	}
+	return 0;
+}
+
 static int test_import_file() {
 	pool p {
 		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-import-");
@@ -298,6 +327,7 @@ static int test_default_path_mfdb() {
 
 int main() {
 	assert_eq(test_save_load_roundtrip(), 0);
+	assert_eq(test_next_id_after_load(), 0);
 	assert_eq(test_merge_lww(), 0);
 	assert_eq(test_merge_local_newer(), 0);
 	assert_eq(test_ensure_parent_dir(), 0);
