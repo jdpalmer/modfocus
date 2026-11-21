@@ -33,8 +33,6 @@ vgcore.*
 
 # Built binary / default modc output
 /modfocus
-/pf
-/q2
 /build/
 *.exe
 *.out
