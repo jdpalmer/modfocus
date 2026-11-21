@@ -40,6 +40,9 @@ struct App {
 	int kill_idx; /* store index pending EditKillConfirm */
 	bool running;
 	bool import_only;
+	bool add_only;
+	char add_title[TaskTitleCap];
+	char add_attn[TaskCcCap];
 	int64_t db_mtime_ns;
 	bool db_mtime_ok;
 };
@@ -485,8 +488,70 @@ static void handle_event(Event *ev) {
 
 static void usage() {
 	fprintf(stderr, "usage: modfocus [--db path] [--import seed.json]\n");
+	fprintf(stderr, "       modfocus [--db path] add [--attn name] title...\n");
 	fprintf(stderr, "  MFDB env overrides default config path\n");
+	fprintf(stderr, "  add captures a task into A:Inbox without opening the TUI\n");
 	fprintf(stderr, "  Requires a Kitty keyboard protocol terminal (Kitty, Ghostty, ...)\n");
+}
+
+/* Join args[from..] into dst with spaces; false if empty or won't fit. */
+static bool join_title_args(const char[..][..] args, size_t from, char[..] dst) {
+	size_t i = from;
+	size_t off = 0;
+	if (ptr(dst) == NULL || cap(dst) == 0) {
+		return false;
+	}
+	dst[0] = 0;
+	for (; i < len(args); i++) {
+		const char[..] a = args[i];
+		size_t n = len(a);
+		size_t need = n + (off > 0 ? 1 : 0);
+		if (off + need + 1 > cap(dst)) {
+			fprintf(stderr, "modfocus: title too long (max %d)\n", TaskTitleCap - 1);
+			return false;
+		}
+		if (off > 0) {
+			dst[off] = ' ';
+			off++;
+		}
+		if (n > 0) {
+			memcpy(ptr(dst) + off, ptr(a), n);
+			off += n;
+		}
+		dst[off] = 0;
+	}
+	return off > 0;
+}
+
+static bool parse_add_args(const char[..][..] args, size_t i) {
+	g_app.add_only = true;
+	g_app.add_title[0] = 0;
+	g_app.add_attn[0] = 0;
+	for (; i < len(args); i++) {
+		const char[..] a = args[i];
+		if (str_eq(a, "--attn") || str_eq(a, "-a")) {
+			i++;
+			if (i >= len(args)) {
+				fprintf(stderr, "modfocus: --attn needs a name\n");
+				return false;
+			}
+			if (len(args[i]) >= sizeof(g_app.add_attn)) {
+				fprintf(stderr, "modfocus: attn too long (max %d)\n", TaskCcCap - 1);
+				return false;
+			}
+			(void)cstr_write(ranged(g_app.add_attn, sizeof(g_app.add_attn)), args[i]);
+			continue;
+		}
+		if (len(a) > 0 && a[0] == '-') {
+			fprintf(stderr, "modfocus: unknown add option %.*s\n", (int)len(a), ptr(a));
+			usage();
+			return false;
+		}
+		return join_title_args(args, i, ranged(g_app.add_title, sizeof(g_app.add_title)));
+	}
+	fprintf(stderr, "modfocus: add needs a title\n");
+	usage();
+	return false;
 }
 
 static bool parse_args(const char[..][..] args, char[..] import_path) {
@@ -519,9 +584,60 @@ static bool parse_args(const char[..][..] args, char[..] import_path) {
 			g_app.import_only = true;
 			continue;
 		}
+		if (str_eq(a, "add")) {
+			if (g_app.import_only) {
+				fprintf(stderr, "modfocus: add and --import cannot be combined\n");
+				return false;
+			}
+			return parse_add_args(args, i + 1);
+		}
 		fprintf(stderr, "modfocus: unknown arg %.*s\n", (int)len(a), ptr(a));
 		usage();
 		return false;
+	}
+	return true;
+}
+
+/* Load-or-create DB, append Inbox task, save; no TUI. */
+static bool cli_add_task() {
+	Task t = {0};
+	const char[..] title = ranged(g_app.add_title, strlen(g_app.add_title));
+	if (len(title) == 0) {
+		fprintf(stderr, "modfocus: add needs a title\n");
+		return false;
+	}
+	if (!g_app.store.load(db_path_view())) {
+		g_app.store.init();
+	}
+	(void)str_set(&t.title, title);
+	(void)str_set(&t.status, "A:Inbox");
+	if (!g_app.store.add(&t)) {
+		t.clear();
+		fprintf(stderr, "modfocus: add failed\n");
+		return false;
+	}
+	t.clear();
+	int at = g_app.store.count - 1;
+	if (at < 0) {
+		fprintf(stderr, "modfocus: add failed\n");
+		return false;
+	}
+	if (strlen(g_app.add_attn) != 0) {
+		if (!g_app.store.set_cc(at, ranged(g_app.add_attn, strlen(g_app.add_attn)))) {
+			fprintf(stderr, "modfocus: attn failed\n");
+			return false;
+		}
+	}
+	if (!g_app.store.save(db_path_view())) {
+		fprintf(stderr, "modfocus: save failed\n");
+		return false;
+	}
+	Task *added = g_app.store.get(at);
+	if (added != NULL && len(added.id) > 0) {
+		fprintf(stderr, "modfocus: added %.*s\n", (int)len(added.id), ptr(added.id));
+		printf("%.*s\n", (int)len(added.id), ptr(added.id));
+	} else {
+		fprintf(stderr, "modfocus: added\n");
 	}
 	return true;
 }
@@ -554,6 +670,9 @@ void app_run(const char[..][..] args) {
 		if (g_app.import_only) {
 			return;
 		}
+	} else if (g_app.add_only) {
+		(void)cli_add_task();
+		return;
 	} else if (!g_app.store.load(db_path_view())) {
 		/* start empty */
 		g_app.store.init();

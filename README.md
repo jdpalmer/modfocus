@@ -33,7 +33,12 @@ modc build -M . -o modfocus
 ./modfocus
 ./modfocus --db /path/to/tasks.json
 ./modfocus --import seed.json
+./modfocus add buy milk
+./modfocus add --attn Charles review PR
 ```
+
+`add` appends an `A:Inbox` task and prints its id (no TUI). Optional `--attn` /
+`-a` sets Attn.
 
 Default store: `$MFDB`, or `~/.config/modfocus/tasks.json`. Point `--db` /
 `MFDB` at a synced folder if you use the same list on more than one machine.
