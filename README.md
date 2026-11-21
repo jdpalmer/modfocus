@@ -6,12 +6,11 @@ workflow that stays in the shell. Command: `modfocus`.
 Each task has a status, a title, who it’s for (Attn), and optional context
 tags (`#home`, `#work`). New tasks land in `A:Inbox` (capture). Then triage
 with `s`: `B:Now` (this week — keep it small), `C:Soon`, `D:Later`,
-`E:Waiting` (ball in their court — Attn says who), `G:Someday`. Attn is
-short names (`Charles`, `Brian, Jessica` or `Brian Jessica` — spaces split
-when there is no comma). Type `#tags` in
-the title when editing or adding — they’re stored separately and shown dim
-after the title (no extra column). Completed items stay out of the way until
-you ask for them. Find and focus keep a long list usable; `f` focuses by Attn
+`E:Waiting` (ball in their court — Attn says who), `G:Someday`. Capture and
+title edit use one line: `@Charles` sets Attn, `#home` sets tags, the rest is
+the title (e.g. `@Brian @Jessica review PR #work`). Attn is stored as short
+names (`Charles`, `Brian, Jessica`). Tags stay in their own field and show dim
+after the title. Find and focus keep a long list usable; `f` focuses by `@attn`
 or `#tag` (Tab completes both).
 
 ## Install
@@ -45,14 +44,15 @@ modc test -M . cli_add_test.mc
 ./modfocus --db /path/to/tasks.json
 ./modfocus --import seed.json
 ./modfocus add buy milk
-./modfocus add --attn Charles review PR
+./modfocus add @Charles review PR
 ./modfocus add pick up dry cleaning #home #errands
 ./modfocus add --tag home buy milk
+./modfocus add --attn Charles review PR
 ```
 
-`add` appends an `A:Inbox` task and prints its id (no TUI). `#tags` in the
-title are parsed; optional `--attn` / `-a` and repeated `--tag` / `-t` also
-apply.
+`add` appends an `A:Inbox` task and prints its id (no TUI). `@attn` and
+`#tags` in the title are parsed; optional `--attn` / `-a` and repeated
+`--tag` / `-t` also apply.
 
 Default store: `$MFDB`, or `~/.config/modfocus/tasks.json`. Point `--db` /
 `MFDB` at a synced folder if you use the same list on more than one machine.
@@ -83,11 +83,11 @@ flash). If `B:Now` is over 7 it shows red `B:n:demote?`.
 | `x` | Mark complete (hidden unless showing complete) |
 | `X` | Toggle showing completed tasks |
 | `o` | Sort (status → Attn → title) |
-| `t` / Enter | Edit title (`#tags` in the line are parsed; Tab completes `#…`) |
+| `t` / Enter | Edit title (`@attn` / `#tags` in the line; Tab completes both) |
 | `a` | Edit Attn (names; comma or space separated; Tab completes) |
-| `n` | New task (Attn prefilled from current row, then title) |
+| `n` | New task (one field; prefills `@attn` from current row) |
 | `/` | Find across fields including tags (press again to clear) |
-| `f` | Focus by Attn or `#tag` (press again to clear; Tab completes both) |
+| `f` | Focus by `@attn` or `#tag` (press again to clear; Tab completes both) |
 | `g` / `G` | Top / bottom |
 | `C-l` | Redraw |
 | `q` | Quit |

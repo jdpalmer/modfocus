@@ -526,20 +526,47 @@ static bool tag_start_char(char c) {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
 }
 
+static bool attn_token_end(char c) {
+	return c == ' ' || c == '\t' || c == ',';
+}
+
 /*
- * Pull whitespace-bounded #tags (must start with a letter) out of src.
- * Returns pool-backed title and normalized tags.
+ * Pull @attn and #tags (token-bounded) out of src.
+ * Returns pool-backed title, normalized tags, and Attn names (no @; space-separated for set_cc).
  */
-[[nodiscard]](char[..], char[..], bool) model_parse_title_tags([[region]] Pool * p, const char[..] src) {
+[[nodiscard]](char[..], char[..], char[..], bool) model_parse_task_line([[region]] Pool * p, const char[..] src) {
 	char[..] title = { 0 };
 	char[..] tags_raw = { 0 };
+	char[..] attn_raw = { 0 };
 	size_t i = 0;
 	bool sp = false;
 	if (p == NULL) {
-		return (str_empty(), str_empty(), false);
+		return (str_empty(), str_empty(), str_empty(), false);
 	}
 	while (i < len(src)) {
-		bool at_bound = (i == 0) || src[i - 1] == ' ' || src[i - 1] == '\t';
+		bool at_bound = (i == 0) || src[i - 1] == ' ' || src[i - 1] == '\t' || src[i - 1] == ',';
+		if (at_bound && src[i] == '@' && i + 1 < len(src) && tag_start_char(src[i + 1])) {
+			size_t start = i + 1;
+			size_t end = start;
+			while (end < len(src) && tag_body_char(src[end])) {
+				end++;
+			}
+			if (end > start && (end >= len(src) || attn_token_end(src[end]))) {
+				const char[..] name = src[start .. end];
+				if (len(attn_raw) > 0) {
+					if (!p.append(&attn_raw, " ") || !p.append(&attn_raw, name)) {
+						return (str_empty(), str_empty(), str_empty(), false);
+					}
+				} else if (!p.append(&attn_raw, name)) {
+					return (str_empty(), str_empty(), str_empty(), false);
+				}
+				i = end;
+				if (i < len(src) && src[i] == ',') {
+					i++;
+				}
+				continue;
+			}
+		}
 		if (at_bound && src[i] == '#' && i + 1 < len(src) && tag_start_char(src[i + 1])) {
 			size_t start = i;
 			size_t end = i + 1;
@@ -551,10 +578,10 @@ static bool tag_start_char(char c) {
 				const char[..] tok = src[start .. end];
 				if (len(tags_raw) > 0) {
 					if (!p.append(&tags_raw, " ") || !p.append(&tags_raw, tok)) {
-						return (str_empty(), str_empty(), false);
+						return (str_empty(), str_empty(), str_empty(), false);
 					}
 				} else if (!p.append(&tags_raw, tok)) {
-					return (str_empty(), str_empty(), false);
+					return (str_empty(), str_empty(), str_empty(), false);
 				}
 				i = end;
 				continue;
@@ -568,20 +595,27 @@ static bool tag_start_char(char c) {
 		}
 		if (sp && len(title) > 0) {
 			if (!p.append(&title, " ")) {
-				return (str_empty(), str_empty(), false);
+				return (str_empty(), str_empty(), str_empty(), false);
 			}
 		}
 		sp = false;
 		if (!p.push(&title, ch)) {
-			return (str_empty(), str_empty(), false);
+			return (str_empty(), str_empty(), str_empty(), false);
 		}
 		i++;
 	}
 	auto (tags, tok) = normalize_tags(p, tags_raw);
 	if (!tok) {
-		return (str_empty(), str_empty(), false);
+		return (str_empty(), str_empty(), str_empty(), false);
 	}
-	return (title, tags, true);
+	return (title, tags, attn_raw, true);
+}
+
+/* Title + #tags only (ignores @attn). */
+[[nodiscard]](char[..], char[..], bool) model_parse_title_tags([[region]] Pool * p, const char[..] src) {
+	auto (title, tags, attn, ok) = model_parse_task_line(p, src);
+	(void)attn;
+	return (title, tags, ok);
 }
 
 /* Write "title #a #b" into dst (fixed buffer). */

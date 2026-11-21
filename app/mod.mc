@@ -22,11 +22,10 @@ enum AppEditKind {
 	EditTitle = 1,
 	EditCc = 2,
 	EditFilterText = 3,
-	EditNewAttn = 4,
-	EditNewTitle = 5,
-	EditFilterCc = 6,
-	/* focus: Attn or #tag */
-	EditKillConfirm = 7
+	EditNewTitle = 4,
+	EditFilterCc = 5,
+	/* focus: @attn or #tag */
+	EditKillConfirm = 6
 };
 
 struct App {
@@ -36,8 +35,6 @@ struct App {
 	int visible_count;
 	UiState ui;
 	char db_path[1024];
-	char new_attn[TaskCcCap];
-	/* stashed between new-task Attn → title prompts */
 	AppEditKind edit_kind;
 	int kill_idx;
 	/* store index pending EditKillConfirm */
@@ -156,8 +153,52 @@ static void begin_edit(AppEditKind kind, const char[..] prompt, const char[..] i
 static void cancel_edit() {
 	g_app.edit_kind = EditNone;
 	g_app.kill_idx = -1;
-	g_app.new_attn[0] = 0;
 	ui_end_edit(&g_app.ui);
+}
+
+/* Format Attn "A, B" as "@A @B " for new-task prefill. */
+static void attn_to_at_prefill(const char[..] cc, char[..] dst) {
+	size_t i = 0;
+	size_t off = 0;
+	cstr_reset(dst);
+	if (ptr(dst) == NULL || cap(dst) < 2) {
+		return;
+	}
+	while (i < len(cc) && off + 2 < cap(dst)) {
+		size_t start = 0;
+		size_t end = 0;
+		while (i < len(cc) && (cc[i] == ' ' || cc[i] == '\t')) {
+			i++;
+		}
+		start = i;
+		while (i < len(cc) && cc[i] != ',') {
+			i++;
+		}
+		end = i;
+		while (end > start && (cc[end - 1] == ' ' || cc[end - 1] == '\t')) {
+			end--;
+		}
+		if (end > start) {
+			size_t n = end - start;
+			if (off > 0) {
+				dst[off++] = ' ';
+			}
+			if (off + 1 + n + 1 >= cap(dst)) {
+				break;
+			}
+			dst[off++] = '@';
+			memcpy(ptr(dst) + off, ptr(cc) + start, n);
+			off += n;
+			dst[off] = 0;
+		}
+		if (i < len(cc) && cc[i] == ',') {
+			i++;
+		}
+	}
+	if (off > 0 && off + 1 < cap(dst)) {
+		dst[off++] = ' ';
+		dst[off] = 0;
+	}
 }
 
 static void do_kill(int idx) {
@@ -211,20 +252,21 @@ static int add_inbox_task(const char[..] title, const char[..] tags, const char[
 	return at;
 }
 
-/* Apply raw title line: split #tags into fields. False if title empty.
- * Rolls back both fields if either set fails after a partial write. */
+/* Apply title line: #tags and optional @attn. Rolls back on partial failure. */
 static bool apply_title_line(int idx, const char[..] raw) {
 	pool p {
-		auto (title, tags, ok) = model_parse_title_tags(&p, raw);
+		auto (title, tags, attn, ok) = model_parse_task_line(&p, raw);
 		Task* t = g_app.store.get(idx);
 		char[..] old_title = str_empty();
 		char[..] old_tags = str_empty();
+		char[..] old_cc = str_empty();
 		if (!ok || len(title) == 0 || t == NULL) {
 			return false;
 		}
 		defer str_free(&old_title);
 		defer str_free(&old_tags);
-		if (!str_set(&old_title, t.title) || !str_set(&old_tags, t.tags)) {
+		defer str_free(&old_cc);
+		if (!str_set(&old_title, t.title) || !str_set(&old_tags, t.tags) || !str_set(&old_cc, t.cc)) {
 			return false;
 		}
 		if (!g_app.store.set_title(idx, title)) {
@@ -233,6 +275,12 @@ static bool apply_title_line(int idx, const char[..] raw) {
 		if (!g_app.store.set_tags(idx, tags)) {
 			(void)g_app.store.set_title(idx, old_title);
 			(void)g_app.store.set_tags(idx, old_tags);
+			return false;
+		}
+		if (len(attn) > 0 && !g_app.store.set_cc(idx, attn)) {
+			(void)g_app.store.set_title(idx, old_title);
+			(void)g_app.store.set_tags(idx, old_tags);
+			(void)g_app.store.set_cc(idx, old_cc);
 			return false;
 		}
 		return true;
@@ -254,7 +302,7 @@ static void apply_edit() {
 		return;
 	}
 	if (kind == EditFilterCc) {
-		/* One focus: bare text → Attn; leading # → tag. */
+		/* One focus: @attn / bare → Attn; # → tag. */
 		(void)str_set(&g_app.filter.cc, "");
 		(void)str_set(&g_app.filter.tag, "");
 		if (val_is_all(val)) {
@@ -262,6 +310,9 @@ static void apply_edit() {
 		} else if (len(val) > 0 && val[0] == '#') {
 			(void)str_set(&g_app.filter.tag, val);
 			ui_set_status(&g_app.ui, "tag focus set");
+		} else if (len(val) > 0 && val[0] == '@') {
+			(void)str_set(&g_app.filter.cc, val[1 ..]);
+			ui_set_status(&g_app.ui, "focus set");
 		} else {
 			(void)str_set(&g_app.filter.cc, val);
 			ui_set_status(&g_app.ui, "focus set");
@@ -269,23 +320,15 @@ static void apply_edit() {
 		refresh_visible();
 		return;
 	}
-	if (kind == EditNewAttn) {
-		snprintf(g_app.new_attn, sizeof(g_app.new_attn), "%s", valbuf);
-		begin_edit(EditNewTitle, "new task (#tags ok): ", "");
-		return;
-	}
 	if (kind == EditNewTitle) {
 		char id[TaskIdCap] = { 0 };
 		pool p {
-			auto (title, tags, ok) = model_parse_title_tags(&p, val);
-			const char[..] attn = ranged(g_app.new_attn, strlen(g_app.new_attn));
+			auto (title, tags, attn, ok) = model_parse_task_line(&p, val);
 			if (!ok || len(title) == 0) {
-				g_app.new_attn[0] = 0;
 				ui_set_status(&g_app.ui, "cancelled");
 				return;
 			}
 			int at = add_inbox_task(title, tags, attn, ranged(id, sizeof(id)));
-			g_app.new_attn[0] = 0;
 			if (at < 0) {
 				ui_set_status(&g_app.ui, "add failed");
 				return;
@@ -386,11 +429,13 @@ static void handle_normal_key(uint32_t key) {
 		return;
 	}
 	if (key == 'n') {
-		/* Prefill Attn from the selected row (meeting burst / same-person add). */
+		/* One field: @attn and #tags in the line; prefill @ from current row. */
+		char pre[UiInputCap] = { 0 };
 		Task* cur = ui_selected_task(&g_app.ui);
-		const char[..] pre = (cur != NULL && len(cur.cc) != 0) ? cur.cc: str_from_cstr("");
-		g_app.new_attn[0] = 0;
-		begin_edit(EditNewAttn, "new attn (Tab completes): ", pre);
+		if (cur != NULL && len(cur.cc) != 0) {
+			attn_to_at_prefill(cur.cc, ranged(pre, sizeof(pre)));
+		}
+		begin_edit(EditNewTitle, "new (@attn #tags): ", ranged(pre, strlen(pre)));
 		return;
 	}
 	int idx = ui_selected_store_index(&g_app.ui);
@@ -404,7 +449,7 @@ static void handle_normal_key(uint32_t key) {
 			ui_set_status(&g_app.ui, "focus cleared");
 			return;
 		}
-		begin_edit(EditFilterCc, "focus (Attn or #tag): ", "");
+		begin_edit(EditFilterCc, "focus (@attn or #tag): ", "");
 		return;
 	}
 	if (idx < 0 || t == NULL) {
@@ -439,9 +484,9 @@ static void handle_normal_key(uint32_t key) {
 	if (key == 't' || key == (uint32_t)TermKeyEnter) {
 		char joined[UiInputCap] = { 0 };
 		if (!model_format_title_tags(t.title, t.tags, ranged(joined, sizeof(joined)))) {
-			begin_edit(EditTitle, "title (#tags ok): ", t.title);
+			begin_edit(EditTitle, "title (@attn #tags): ", t.title);
 		} else {
-			begin_edit(EditTitle, "title (#tags ok): ", ranged(joined, strlen(joined)));
+			begin_edit(EditTitle, "title (@attn #tags): ", ranged(joined, strlen(joined)));
 		}
 		return;
 	}
@@ -543,12 +588,52 @@ static void complete_tag_token() {
 	(void)apply_complete(start, end, true);
 }
 
-/* Focus prompt: #… → tag complete; else Attn, then tag fallback. */
+/* Complete @Name token: strip @ for lookup, write @Name back. */
+static bool apply_at_complete(int start, int end) {
+	UiState* ui = &g_app.ui;
+	char prefix[64] = { 0 };
+	char done[64] = { 0 };
+	char out[66] = { 0 };
+	int plen = end - start;
+	if (plen < 0) {
+		plen = 0;
+	}
+	if (plen >= (int) sizeof(prefix)) {
+		plen = (int) sizeof(prefix) - 1;
+	}
+	if (plen > 0) {
+		memcpy(prefix, ui.input + start, plen);
+	}
+	prefix[plen] = 0;
+	const char[..] want = (plen > 0 && prefix[0] == '@') ? ranged(prefix + 1, (size_t)(plen - 1)): ranged(prefix, (size_t)plen);
+	if (!g_app.store.attn_complete(want, ranged(done, sizeof(done)))) {
+		return false;
+	}
+	out[0] = '@';
+	{
+		size_t n = cstr_zlen(ranged(done, sizeof(done)));
+		if (n + 2 > sizeof(out)) {
+			n = sizeof(out) - 2;
+		}
+		if (n > 0) {
+			memcpy(out + 1, done, n);
+		}
+		out[n + 1] = 0;
+		replace_input_span(start, end, ranged(out, n + 1));
+	}
+	return true;
+}
+
+/* Focus prompt: #… → tag; @… → Attn; else Attn, then tag fallback. */
 static void complete_focus_token() {
 	UiState* ui = &g_app.ui;
 	auto (start, end) = input_token_span(false);
 	if (start < ui.input_len && ui.input[start] == '#') {
 		(void)apply_complete(start, end, true);
+		return;
+	}
+	if (start < ui.input_len && ui.input[start] == '@') {
+		(void)apply_at_complete(start, end);
 		return;
 	}
 	if (apply_complete(start, end, false)) {
@@ -557,13 +642,16 @@ static void complete_focus_token() {
 	(void)apply_complete(start, end, true);
 }
 
-/* Title line: complete #tag tokens only (Attn stays on `a`). */
-static void complete_title_tag_token() {
+/* Title / new-task line: Tab completes @attn and #tags. */
+static void complete_task_line_token() {
 	UiState* ui = &g_app.ui;
 	auto (start, end) = input_token_span(false);
-	(void)end;
 	if (start < ui.input_len && ui.input[start] == '#') {
-		complete_tag_token();
+		(void)apply_complete(start, end, true);
+		return;
+	}
+	if (start < ui.input_len && ui.input[start] == '@') {
+		(void)apply_at_complete(start, end);
 	}
 }
 
@@ -601,7 +689,7 @@ static void handle_event(Event* ev) {
 				/* ignore other keys until y/n */
 				return;
 			}
-			if ((g_app.edit_kind == EditCc || g_app.edit_kind == EditNewAttn) && (key == '\t' || key == (uint32_t)TermKeyTab)) {
+			if (g_app.edit_kind == EditCc && (key == '\t' || key == (uint32_t)TermKeyTab)) {
 				complete_attn_token();
 				return;
 			}
@@ -610,7 +698,7 @@ static void handle_event(Event* ev) {
 				return;
 			}
 			if ((g_app.edit_kind == EditTitle || g_app.edit_kind == EditNewTitle) && (key == '\t' || key == (uint32_t)TermKeyTab)) {
-				complete_title_tag_token();
+				complete_task_line_token();
 				return;
 			}
 			if (ui_edit_handle_key(&g_app.ui, key)) {
@@ -632,7 +720,7 @@ static void usage() {
 	fprintf(stderr, "usage: modfocus [--db path] [--import seed.json]\n");
 	fprintf(stderr, "       modfocus [--db path] add [--attn name] [--tag name]... title...\n");
 	fprintf(stderr, "  MFDB env overrides default config path\n");
-	fprintf(stderr, "  add captures into A:Inbox; #tags in title are parsed (or use --tag)\n");
+	fprintf(stderr, "  add captures into A:Inbox; @attn and #tags in the title are parsed\n");
 	fprintf(stderr, "  Requires a Kitty keyboard protocol terminal (Kitty, Ghostty, ...)\n");
 }
 
@@ -796,24 +884,39 @@ static bool cli_add_task() {
 		return false;
 	}
 	pool p {
-		auto (title, tags, ok) = model_parse_title_tags(&p, ranged(g_app.add_title, strlen(g_app.add_title)));
-		char[..] merged = { 0 };
+		auto (title, tags, attn, ok) = model_parse_task_line(&p, ranged(g_app.add_title, strlen(g_app.add_title)));
+		char[..] merged_tags = { 0 };
+		char[..] merged_attn = { 0 };
 		if (!ok || len(title) == 0) {
 			fprintf(stderr, "modfocus: add needs a title\n");
 			return false;
 		}
-		/* Merge #tags from the title line with repeated --tag flags. */
-		if (len(tags) > 0 && !p.append(&merged, tags)) {
+		/* Merge #tags / @attn from the line with --tag / --attn flags. */
+		if (len(tags) > 0 && !p.append(&merged_tags, tags)) {
 			fprintf(stderr, "modfocus: tags failed\n");
 			return false;
 		}
 		if (strlen(g_app.add_tags) != 0) {
-			if (len(merged) > 0 && !p.append(&merged, " ")) {
+			if (len(merged_tags) > 0 && !p.append(&merged_tags, " ")) {
 				fprintf(stderr, "modfocus: tags failed\n");
 				return false;
 			}
-			if (!p.append(&merged, ranged(g_app.add_tags, strlen(g_app.add_tags)))) {
+			if (!p.append(&merged_tags, ranged(g_app.add_tags, strlen(g_app.add_tags)))) {
 				fprintf(stderr, "modfocus: tags failed\n");
+				return false;
+			}
+		}
+		if (len(attn) > 0 && !p.append(&merged_attn, attn)) {
+			fprintf(stderr, "modfocus: attn failed\n");
+			return false;
+		}
+		if (strlen(g_app.add_attn) != 0) {
+			if (len(merged_attn) > 0 && !p.append(&merged_attn, " ")) {
+				fprintf(stderr, "modfocus: attn failed\n");
+				return false;
+			}
+			if (!p.append(&merged_attn, ranged(g_app.add_attn, strlen(g_app.add_attn)))) {
+				fprintf(stderr, "modfocus: attn failed\n");
 				return false;
 			}
 		}
@@ -826,7 +929,7 @@ static bool cli_add_task() {
 			g_app.store.init();
 		}
 		char id[TaskIdCap] = { 0 };
-		int at = add_inbox_task(title, merged, ranged(g_app.add_attn, strlen(g_app.add_attn)), ranged(id, sizeof(id)));
+		int at = add_inbox_task(title, merged_tags, merged_attn, ranged(id, sizeof(id)));
 		if (at < 0) {
 			fprintf(stderr, "modfocus: add failed\n");
 			return false;

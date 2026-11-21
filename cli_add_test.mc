@@ -88,6 +88,35 @@ static int test_cli_add_flags() {
 	return 0;
 }
 
+static int test_cli_add_at_tokens() {
+	pool p {
+		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-cli-at-");
+		assert(dok && len(dir) > 0);
+		defer(void)fs_remove(dir);
+		auto (db, pok) = path_join(&p, dir, "tasks.json");
+		assert(pok);
+		{
+			const char[..] args[5] = { 0 };
+			args[0] = "--db";
+			args[1] = db;
+			args[2] = "add";
+			args[3] = "@Charles review PR #work";
+			assert_eq(run_cmd("./modfocus", args, 4), 0);
+		}
+		{
+			TaskStore loaded = { 0 };
+			loaded.init();
+			assert(loaded.load(db));
+			assert_eq(loaded.count, 1);
+			assert(str_eq(loaded.tasks[0].title, "review PR"));
+			assert(str_eq(loaded.tasks[0].tags, "#work"));
+			assert(str_eq(loaded.tasks[0].cc, "Charles"));
+		}
+		(void)fs_remove(db);
+	}
+	return 0;
+}
+
 static int test_cli_add_empty_fails() {
 	pool p {
 		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-cli-empty-");
@@ -144,6 +173,7 @@ static int test_cli_add_creates_db() {
 int main() {
 	assert_eq(ensure_modfocus(), 0);
 	assert_eq(test_cli_add_flags(), 0);
+	assert_eq(test_cli_add_at_tokens(), 0);
 	assert_eq(test_cli_add_empty_fails(), 0);
 	assert_eq(test_cli_add_creates_db(), 0);
 	return 0;

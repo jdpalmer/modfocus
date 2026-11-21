@@ -76,6 +76,39 @@ static int test_parse_title_tags() {
 	return 0;
 }
 
+static int test_parse_task_line_at() {
+	pool p {
+		auto (title, tags, attn, ok) = model_parse_task_line(&p, "@Charles review PR #work");
+		assert(ok);
+		assert(str_eq(title, "review PR"));
+		assert(str_eq(tags, "#work"));
+		assert(str_eq(attn, "Charles"));
+	}
+	pool p2 {
+		auto (title, tags, attn, ok) = model_parse_task_line(&p2, "@Brian @Jessica buy milk #home");
+		assert(ok);
+		assert(str_eq(title, "buy milk"));
+		assert(str_eq(tags, "#home"));
+		assert(str_eq(attn, "Brian Jessica"));
+	}
+	pool p3 {
+		auto (title, tags, attn, ok) = model_parse_task_line(&p3, "plain @Ada");
+		(void)tags;
+		assert(ok);
+		assert(str_eq(title, "plain"));
+		assert(str_eq(attn, "Ada"));
+	}
+	pool p4 {
+		auto (title, tags, attn, ok) = model_parse_task_line(&p4, "user@host keep");
+		(void)tags;
+		assert(ok);
+		/* Glued @ is not a token (email-ish). */
+		assert(str_eq(title, "user@host keep"));
+		assert(len(attn) == 0);
+	}
+	return 0;
+}
+
 /* Edit/add contract: parse line then set_title/set_tags (empty tags clears). */
 static int test_title_line_apply() {
 	TaskStore store = { 0 };
@@ -257,6 +290,7 @@ int main() {
 	assert_eq(test_attn_comma_split(), 0);
 	assert_eq(test_tags_normalize(), 0);
 	assert_eq(test_parse_title_tags(), 0);
+	assert_eq(test_parse_task_line_at(), 0);
 	assert_eq(test_title_line_apply(), 0);
 	assert_eq(test_format_title_tags(), 0);
 	assert_eq(test_attn_complete(), 0);
