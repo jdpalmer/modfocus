@@ -809,19 +809,27 @@ static bool cli_add_task() {
 			}
 			g_app.store.init();
 		}
-		int at = add_inbox_task(title, merged, ranged(g_app.add_attn, strlen(g_app.add_attn)), str_empty());
+		char id[TaskIdCap] = { 0 };
+		int at = add_inbox_task(title, merged, ranged(g_app.add_attn, strlen(g_app.add_attn)), ranged(id, sizeof(id)));
 		if (at < 0) {
 			fprintf(stderr, "modfocus: add failed\n");
 			return false;
+		}
+		/* Re-read disk and LWW-merge so a concurrent TUI/other save is kept. */
+		{
+			static TaskStore disk;
+			disk.init();
+			if (disk.load(db_path_view())) {
+				(void)g_app.store.merge(&disk);
+			}
 		}
 		if (!g_app.store.save(db_path_view())) {
 			fprintf(stderr, "modfocus: save failed\n");
 			return false;
 		}
-		Task* added = g_app.store.get(at);
-		if (added != NULL && len(added.id) > 0) {
-			fprintf(stderr, "modfocus: added %.*s\n", (int)len(added.id), ptr(added.id));
-			printf("%.*s\n", (int)len(added.id), ptr(added.id));
+		if (strlen(id) != 0) {
+			fprintf(stderr, "modfocus: added %s\n", id);
+			printf("%s\n", id);
 		} else {
 			fprintf(stderr, "modfocus: added\n");
 		}
