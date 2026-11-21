@@ -457,22 +457,42 @@ static void replace_input_span(int start, int end, const char[..] done) {
 	ui.input_cursor = start + dlen;
 }
 
-/* Tab-complete the Attn token at the caret (comma-separated short names). */
-static void complete_attn_token() {
+/* Token at caret: comma_only → Attn names; else space/comma-bounded (#tags / focus). */
+static(int, int) input_token_span(bool comma_only) {
 	UiState* ui = &g_app.ui;
 	int start = ui.input_cursor;
 	int end = ui.input_cursor;
-	char prefix[64] = { 0 };
-	char done[64] = { 0 };
-	while (start > 0 && ui.input[start - 1] != ',') {
+	while (start > 0) {
+		char c = ui.input[start - 1];
+		if (comma_only) {
+			if (c == ',') {
+				break;
+			}
+		} else if (c == ',' || c == ' ' || c == '\t') {
+			break;
+		}
 		start--;
 	}
-	while (start < end && (ui.input[start] == ' ' || ui.input[start] == '\t')) {
-		start++;
+	if (comma_only) {
+		while (start < end && (ui.input[start] == ' ' || ui.input[start] == '\t')) {
+			start++;
+		}
+		while (end < ui.input_len && ui.input[end] != ',') {
+			end++;
+		}
+	} else {
+		while (end < ui.input_len && ui.input[end] != ',' && ui.input[end] != ' ' && ui.input[end] != '\t') {
+			end++;
+		}
 	}
-	while (end < ui.input_len && ui.input[end] != ',') {
-		end++;
-	}
+	return (start, end);
+}
+
+/* Run attn or tag complete over input[start..end); true if the span changed. */
+static bool apply_complete(int start, int end, bool tag) {
+	UiState* ui = &g_app.ui;
+	char prefix[64] = { 0 };
+	char done[64] = { 0 };
 	int plen = end - start;
 	if (plen < 0) {
 		plen = 0;
@@ -484,86 +504,48 @@ static void complete_attn_token() {
 		memcpy(prefix, ui.input + start, plen);
 	}
 	prefix[plen] = 0;
-	if (!g_app.store.attn_complete(ranged(prefix, (size_t)plen), ranged(done, sizeof(done)))) {
-		return;
+	if (tag) {
+		if (!g_app.store.tag_complete(ranged(prefix, (size_t)plen), ranged(done, sizeof(done)))) {
+			return false;
+		}
+	} else if (!g_app.store.attn_complete(ranged(prefix, (size_t)plen), ranged(done, sizeof(done)))) {
+		return false;
 	}
 	replace_input_span(start, end, ranged(done, cstr_zlen(ranged(done, sizeof(done)))));
+	return true;
+}
+
+/* Tab-complete the Attn token at the caret (comma-separated short names). */
+static void complete_attn_token() {
+	auto (start, end) = input_token_span(true);
+	(void)apply_complete(start, end, false);
 }
 
 /* Tab-complete a #tag token (space/comma-bounded). */
 static void complete_tag_token() {
-	UiState* ui = &g_app.ui;
-	int start = ui.input_cursor;
-	int end = ui.input_cursor;
-	char prefix[64] = { 0 };
-	char done[64] = { 0 };
-	while (start > 0 && ui.input[start - 1] != ',' && ui.input[start - 1] != ' ' && ui.input[start - 1] != '\t') {
-		start--;
-	}
-	while (end < ui.input_len && ui.input[end] != ',' && ui.input[end] != ' ' && ui.input[end] != '\t') {
-		end++;
-	}
-	int plen = end - start;
-	if (plen < 0) {
-		plen = 0;
-	}
-	if (plen >= (int) sizeof(prefix)) {
-		plen = (int) sizeof(prefix) - 1;
-	}
-	if (plen > 0) {
-		memcpy(prefix, ui.input + start, plen);
-	}
-	prefix[plen] = 0;
-	if (!g_app.store.tag_complete(ranged(prefix, (size_t)plen), ranged(done, sizeof(done)))) {
-		return;
-	}
-	replace_input_span(start, end, ranged(done, cstr_zlen(ranged(done, sizeof(done)))));
+	auto (start, end) = input_token_span(false);
+	(void)apply_complete(start, end, true);
 }
 
 /* Focus prompt: #… → tag complete; else Attn, then tag fallback. */
 static void complete_focus_token() {
 	UiState* ui = &g_app.ui;
-	int start = ui.input_cursor;
-	char prefix[64] = { 0 };
-	while (start > 0 && ui.input[start - 1] != ',' && ui.input[start - 1] != ' ' && ui.input[start - 1] != '\t') {
-		start--;
-	}
+	auto (start, end) = input_token_span(false);
 	if (start < ui.input_len && ui.input[start] == '#') {
-		complete_tag_token();
+		(void)apply_complete(start, end, true);
 		return;
 	}
-	{
-		int end = ui.input_cursor;
-		char done[64] = { 0 };
-		while (end < ui.input_len && ui.input[end] != ',' && ui.input[end] != ' ' && ui.input[end] != '\t') {
-			end++;
-		}
-		int plen = end - start;
-		if (plen < 0) {
-			plen = 0;
-		}
-		if (plen >= (int) sizeof(prefix)) {
-			plen = (int) sizeof(prefix) - 1;
-		}
-		if (plen > 0) {
-			memcpy(prefix, ui.input + start, plen);
-		}
-		prefix[plen] = 0;
-		if (g_app.store.attn_complete(ranged(prefix, (size_t)plen), ranged(done, sizeof(done)))) {
-			replace_input_span(start, end, ranged(done, cstr_zlen(ranged(done, sizeof(done)))));
-			return;
-		}
+	if (apply_complete(start, end, false)) {
+		return;
 	}
-	complete_tag_token();
+	(void)apply_complete(start, end, true);
 }
 
 /* Title line: complete #tag tokens only (Attn stays on `a`). */
 static void complete_title_tag_token() {
 	UiState* ui = &g_app.ui;
-	int start = ui.input_cursor;
-	while (start > 0 && ui.input[start - 1] != ' ' && ui.input[start - 1] != '\t') {
-		start--;
-	}
+	auto (start, end) = input_token_span(false);
+	(void)end;
 	if (start < ui.input_len && ui.input[start] == '#') {
 		complete_tag_token();
 	}
@@ -741,14 +723,11 @@ static bool parse_add_args(const char[..][..] args, size_t i) {
 }
 
 /*
- * true → continue into the app. false → exit with *status
+ * (continue, exit_status). continue false → exit with exit_status
  * (0 for --help, 1 for usage/arg errors).
  */
-static bool parse_args(const char[..][..] args, char[..] import_path, int* status) {
+static(bool, int) parse_args(const char[..][..] args, char[..] import_path) {
 	size_t i = 1;
-	if (status != NULL) {
-		*status = 1;
-	}
 	if (ptr(import_path) != NULL && cap(import_path) > 0) {
 		(void)snprintf(ptr(import_path), cap(import_path), "%s", "");
 	}
@@ -756,16 +735,13 @@ static bool parse_args(const char[..][..] args, char[..] import_path, int* statu
 		const char[..] a = args[i];
 		if (str_eq(a, "--help") || str_eq(a, "-h")) {
 			usage();
-			if (status != NULL) {
-				*status = 0;
-			}
-			return false;
+			return (false, 0);
 		}
 		if (str_eq(a, "--db")) {
 			i++;
 			if (i >= len(args)) {
 				fprintf(stderr, "modfocus: --db needs a path\n");
-				return false;
+				return (false, 1);
 			}
 			(void)cstr_write(ranged(g_app.db_path, sizeof(g_app.db_path)), args[i]);
 			continue;
@@ -774,7 +750,7 @@ static bool parse_args(const char[..][..] args, char[..] import_path, int* statu
 			i++;
 			if (i >= len(args) || ptr(import_path) == NULL) {
 				fprintf(stderr, "modfocus: --import needs a path\n");
-				return false;
+				return (false, 1);
 			}
 			(void)cstr_write(import_path, args[i]);
 			g_app.import_only = true;
@@ -783,24 +759,18 @@ static bool parse_args(const char[..][..] args, char[..] import_path, int* statu
 		if (str_eq(a, "add")) {
 			if (g_app.import_only) {
 				fprintf(stderr, "modfocus: add and --import cannot be combined\n");
-				return false;
+				return (false, 1);
 			}
 			if (!parse_add_args(args, i + 1)) {
-				return false;
+				return (false, 1);
 			}
-			if (status != NULL) {
-				*status = 0;
-			}
-			return true;
+			return (true, 0);
 		}
 		fprintf(stderr, "modfocus: unknown arg %.*s\n", (int)len(a), ptr(a));
 		usage();
-		return false;
+		return (false, 1);
 	}
-	if (status != NULL) {
-		*status = 0;
-	}
-	return true;
+	return (true, 0);
 }
 
 /* Load-or-create DB, append Inbox task, save; no TUI. */
@@ -856,7 +826,6 @@ static bool cli_add_task() {
 
 int app_run(const char[..][..] args) {
 	char import_path[1024] = { 0 };
-	int arg_status = 1;
 	memset(&g_app, 0, sizeof(g_app));
 	g_app.store.init();
 	g_app.filter.init();
@@ -872,8 +841,11 @@ int app_run(const char[..][..] args) {
 			snprintf(g_app.db_path, sizeof(g_app.db_path), "tasks.json");
 		}
 	}
-	if (!parse_args(args, ranged(import_path, sizeof(import_path)), &arg_status)) {
-		return arg_status;
+	{
+		auto (go, status) = parse_args(args, ranged(import_path, sizeof(import_path)));
+		if (!go) {
+			return status;
+		}
 	}
 	if (strlen(import_path) != 0) {
 		if (!store_import_file(&g_app.store, ranged(import_path, strlen(import_path)), db_path_view())) {

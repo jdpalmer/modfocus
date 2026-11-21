@@ -609,11 +609,11 @@ static bool tag_start_char(char c) {
 	return true;
 }
 
-struct AttnName {
+struct NameEntry {
 	char[..] s;
 };
 
-static void attn_names_free(AttnName[..] names, int count) {
+static void names_free(NameEntry[..] names, int count) {
 	if (count <= 0) {
 		return;
 	}
@@ -622,7 +622,30 @@ static void attn_names_free(AttnName[..] names, int count) {
 	}
 }
 
-static int collect_attn_names(const TaskStore* store, AttnName[..] names) {
+static bool names_push_unique(NameEntry[..] names, int* count, const char[..] nv) {
+	if (count == NULL ||*count < 0) {
+		return false;
+	}
+	if (*count > 0) {
+		for (auto n: names[0 ..(size_t)* count]) {
+			if (ascii_ieq(n.s, nv)) {
+				return true;
+			}
+		}
+	}
+	if (*count >= (int)len(names)) {
+		return true;
+	}
+	if (!field_set(&names[*count].s, nv)) {
+		names_free(names,*count);
+		*count = 0;
+		return false;
+	}
+	(*count)++;
+	return true;
+}
+
+static int collect_attn_names(const TaskStore* store, NameEntry[..] names) {
 	int count = 0;
 	if (store == NULL || ptr(names) == NULL) {
 		return 0;
@@ -634,7 +657,6 @@ static int collect_attn_names(const TaskStore* store, AttnName[..] names) {
 			while (i < len(cc)) {
 				size_t start = 0;
 				size_t end = 0;
-				bool seen = false;
 				while (i < len(cc) && (cc[i] == ' ' || cc[i] == '\t')) {
 					i++;
 				}
@@ -646,23 +668,8 @@ static int collect_attn_names(const TaskStore* store, AttnName[..] names) {
 				while (end > start && (cc[end - 1] == ' ' || cc[end - 1] == '\t')) {
 					end--;
 				}
-				if (end > start) {
-					const char[..] nv = cc[start .. end];
-					if (count > 0) {
-						for (auto n: names[0 ..(size_t)count]) {
-							if (ascii_ieq(n.s, nv)) {
-								seen = true;
-								break;
-							}
-						}
-					}
-					if (!seen && count < (int)len(names)) {
-						if (!field_set(&names[count].s, nv)) {
-							attn_names_free(names, count);
-							return 0;
-						}
-						count++;
-					}
+				if (end > start && !names_push_unique(names, &count, cc[start .. end])) {
+					return 0;
 				}
 				if (i < len(cc) && cc[i] == ',') {
 					i++;
@@ -673,17 +680,46 @@ static int collect_attn_names(const TaskStore* store, AttnName[..] names) {
 	return count;
 }
 
-/* out is a writable fixed buffer view (e.g. ranged(stack, n)); uses cstr_write. */
-bool (TaskStore* store).attn_complete(const char[..] prefix, char[..] out) {
-	AttnName names[AttnNamesMax] = { 0 };
+static int collect_tag_names(const TaskStore* store, NameEntry[..] names) {
+	int count = 0;
+	if (store == NULL || ptr(names) == NULL) {
+		return 0;
+	}
+	if (store.count > 0) {
+		for (auto t: store.tasks[0 ..(size_t)store.count]) {
+			const char[..] tags = t.tags;
+			size_t i = 0;
+			while (i < len(tags)) {
+				size_t start = 0;
+				size_t end = 0;
+				while (i < len(tags) && (tags[i] == ' ' || tags[i] == '\t')) {
+					i++;
+				}
+				start = i;
+				while (i < len(tags) && tags[i] != ' ' && tags[i] != '\t') {
+					i++;
+				}
+				end = i;
+				if (end > start && !names_push_unique(names, &count, tags[start .. end])) {
+					return 0;
+				}
+			}
+		}
+	}
+	return count;
+}
+
+/*
+ * Match names against prefix; write the unique match or shared LCP into out.
+ * False if no match, or if multiple matches share only the current prefix.
+ */
+static bool complete_from_names(NameEntry[..] names, int n, const char[..] prefix, char[..] out) {
 	int matches = 0;
 	int first = -1;
 	size_t common = 0;
 	if (ptr(out) == NULL || cap(out) == 0) {
 		return false;
 	}
-	int n = collect_attn_names(store, ranged(names, AttnNamesMax));
-	defer attn_names_free(ranged(names, AttnNamesMax), n);
 	for (int i = 0; i < n; i++) {
 		const char[..] cand = names[i].s;
 		if (!ascii_istartswith(cand, prefix)) {
@@ -719,75 +755,19 @@ bool (TaskStore* store).attn_complete(const char[..] prefix, char[..] out) {
 	}
 }
 
-struct TagName {
-	char[..] s;
-};
-
-static void tag_names_free(TagName[..] names, int count) {
-	if (count <= 0) {
-		return;
-	}
-	for (auto* n: names[0 ..(size_t)count]) {
-		str_free(&n.s);
-	}
-}
-
-static int collect_tag_names(const TaskStore* store, TagName[..] names) {
-	int count = 0;
-	if (store == NULL || ptr(names) == NULL) {
-		return 0;
-	}
-	if (store.count > 0) {
-		for (auto t: store.tasks[0 ..(size_t)store.count]) {
-			const char[..] tags = t.tags;
-			size_t i = 0;
-			while (i < len(tags)) {
-				size_t start = 0;
-				size_t end = 0;
-				bool seen = false;
-				while (i < len(tags) && (tags[i] == ' ' || tags[i] == '\t')) {
-					i++;
-				}
-				start = i;
-				while (i < len(tags) && tags[i] != ' ' && tags[i] != '\t') {
-					i++;
-				}
-				end = i;
-				if (end > start) {
-					const char[..] nv = tags[start .. end];
-					if (count > 0) {
-						for (auto n: names[0 ..(size_t)count]) {
-							if (ascii_ieq(n.s, nv)) {
-								seen = true;
-								break;
-							}
-						}
-					}
-					if (!seen && count < (int)len(names)) {
-						if (!field_set(&names[count].s, nv)) {
-							tag_names_free(names, count);
-							return 0;
-						}
-						count++;
-					}
-				}
-			}
-		}
-	}
-	return count;
+/* out is a writable fixed buffer view (e.g. ranged(stack, n)); uses cstr_write. */
+[[nodiscard]] bool (TaskStore* store).attn_complete(const char[..] prefix, char[..] out) {
+	NameEntry names[AttnNamesMax] = { 0 };
+	int n = collect_attn_names(store, ranged(names, AttnNamesMax));
+	defer names_free(ranged(names, AttnNamesMax), n);
+	return complete_from_names(ranged(names, AttnNamesMax), n, prefix, out);
 }
 
 /* Complete a tag token; prefix may omit leading #. Writes #name into out. */
-bool (TaskStore* store).tag_complete(const char[..] prefix, char[..] out) {
-	TagName names[TagNamesMax] = { 0 };
+[[nodiscard]] bool (TaskStore* store).tag_complete(const char[..] prefix, char[..] out) {
+	NameEntry names[TagNamesMax] = { 0 };
 	char wantbuf[TagNameCap + 2] = { 0 };
 	const char[..] want = { 0 };
-	int matches = 0;
-	int first = -1;
-	size_t common = 0;
-	if (ptr(out) == NULL || cap(out) == 0) {
-		return false;
-	}
 	if (len(prefix) > 0 && prefix[0] == '#') {
 		want = prefix;
 	} else if (len(prefix) + 1 < sizeof(wantbuf)) {
@@ -801,40 +781,8 @@ bool (TaskStore* store).tag_complete(const char[..] prefix, char[..] out) {
 		return false;
 	}
 	int n = collect_tag_names(store, ranged(names, TagNamesMax));
-	defer tag_names_free(ranged(names, TagNamesMax), n);
-	for (int i = 0; i < n; i++) {
-		const char[..] cand = names[i].s;
-		if (!ascii_istartswith(cand, want)) {
-			continue;
-		}
-		if (first < 0) {
-			first = i;
-			common = len(cand);
-		} else {
-			const char[..] a = names[first].s;
-			size_t k = 0;
-			while (k < common && k < len(a) && k < len(cand) && ascii_lower(a[k]) == ascii_lower(cand[k])) {
-				k++;
-			}
-			common = k;
-		}
-		matches++;
-	}
-	if (matches == 0 || first < 0) {
-		return false;
-	}
-	if (matches == 1) {
-		(void)cstr_write(out, names[first].s);
-		return true;
-	}
-	{
-		const char[..] a = names[first].s;
-		if (common > len(a)) {
-			common = len(a);
-		}
-		(void)cstr_write(out, a[0 .. common]);
-		return common > len(want);
-	}
+	defer names_free(ranged(names, TagNamesMax), n);
+	return complete_from_names(ranged(names, TagNamesMax), n, want, out);
 }
 
 static int status_rank(const char[..] s) {
