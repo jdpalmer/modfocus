@@ -9,6 +9,49 @@ import "str";
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
+#include <utime.h>
+#include "host_time.h"
+
+static(char[..], bool) bak_slot([[region]] Pool * p, const char[..] db, int n) {
+	char suf[16] = { 0 };
+	char[..] out = { 0 };
+	snprintf(suf, sizeof(suf), ".bak.%d", n);
+	if (!p.append(&out, db) || !p.append(&out, ranged(suf, strlen(suf)))) {
+		return (str_empty(), false);
+	}
+	return (out, true);
+}
+
+/* Make path look older than BackupMinAgeSec so the next save rotates. */
+static bool age_file(const char[..] path, int64_t age_sec) {
+	char z[BackupPathCap] = { 0 };
+	int64_t now = time(0);
+	int64_t t = now - age_sec;
+	if (len(path) + 1 > sizeof(z)) {
+		return false;
+	}
+	memcpy(z, ptr(path), len(path));
+	if (t <= 0) {
+		t = 1;
+	}
+	{
+		struct utimbuf times = {
+			.actime = t,
+			.modtime = t
+		};
+		return utime(z, &times) == 0;
+	}
+}
+
+static bool load_title(const char[..] path, char[..] dst) {
+	TaskStore loaded = { 0 };
+	loaded.init();
+	if (!loaded.load(path) || loaded.count < 1) {
+		return false;
+	}
+	return cstr_write(dst, loaded.tasks[0].title) > 0 || len(loaded.tasks[0].title) == 0;
+}
 
 static int add_titled(TaskStore* store, const char[..] title) {
 	Task t = { 0 };
@@ -107,6 +150,62 @@ static int test_ensure_parent_dir() {
 	return 0;
 }
 
+static int test_backup_rotate() {
+	pool p {
+		char title[64] = { 0 };
+		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-bak-");
+		assert(dok && len(dir) > 0);
+		defer(void)fs_remove(dir);
+		auto (db, pok) = path_join(&p, dir, "tasks.json");
+		assert(pok);
+		auto (bak1, b1ok) = bak_slot(&p, db, 1);
+		auto (bak2, b2ok) = bak_slot(&p, db, 2);
+		assert(b1ok && b2ok);
+		TaskStore store = { 0 };
+		store.init();
+		int at = add_titled(&store, "one");
+		assert(at >= 0);
+		assert(store.save(db));
+		/* First save: live only, no backup yet. */
+		{
+			auto (info, ok) = fs_stat(bak1);
+			assert(!ok || info.kind != KindFile);
+		}
+		assert(store.set_title(at, "two"));
+		assert(store.save(db));
+		/* Second save rotates prior live → bak.1. */
+		assert(load_title(bak1, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "one"));
+		assert(load_title(db, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "two"));
+		assert(store.set_title(at, "three"));
+		assert(store.save(db));
+		/* Within the hour: no new generation; bak.1 stays "one". */
+		{
+			auto (info, ok) = fs_stat(bak2);
+			assert(!ok || info.kind != KindFile);
+		}
+		assert(load_title(bak1, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "one"));
+		assert(load_title(db, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "three"));
+		/* Age bak.1 so the next save rotates again. */
+		assert(age_file(bak1, BackupMinAgeSec + 60));
+		assert(store.set_title(at, "four"));
+		assert(store.save(db));
+		assert(load_title(bak2, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "one"));
+		assert(load_title(bak1, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "three"));
+		assert(load_title(db, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "four"));
+		(void)fs_remove(bak2);
+		(void)fs_remove(bak1);
+		(void)fs_remove(db);
+	}
+	return 0;
+}
+
 static int test_default_path_mfdb() {
 	pool p {
 		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-mfdb-");
@@ -127,6 +226,7 @@ int main() {
 	assert_eq(test_save_load_roundtrip(), 0);
 	assert_eq(test_merge_lww(), 0);
 	assert_eq(test_ensure_parent_dir(), 0);
+	assert_eq(test_backup_rotate(), 0);
 	assert_eq(test_default_path_mfdb(), 0);
 	return 0;
 }
