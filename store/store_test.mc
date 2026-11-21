@@ -131,6 +131,29 @@ static int test_merge_lww() {
 	return 0;
 }
 
+static int test_merge_local_newer() {
+	TaskStore local = { 0 };
+	TaskStore incoming = { 0 };
+	local.init();
+	incoming.init();
+	int a = add_titled(&local, "local wins");
+	assert(a >= 0);
+	assert(str_set(&local.tasks[a].id, "t7"));
+	assert(str_set(&local.tasks[a].updated, "2024-01-01T00:00:00Z"));
+	assert(str_set(&local.tasks[a].cc, "Local"));
+	int b = add_titled(&incoming, "stale remote");
+	assert(b >= 0);
+	assert(str_set(&incoming.tasks[b].id, "t7"));
+	assert(str_set(&incoming.tasks[b].updated, "2020-01-01T00:00:00Z"));
+	assert(str_set(&incoming.tasks[b].title, "stale remote"));
+	assert(str_set(&incoming.tasks[b].cc, "Remote"));
+	assert(!local.merge(&incoming));
+	assert_eq(local.count, 1);
+	assert(str_eq(local.tasks[0].title, "local wins"));
+	assert(str_eq(local.tasks[0].cc, "Local"));
+	return 0;
+}
+
 static int test_ensure_parent_dir() {
 	pool p {
 		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-parent-");
@@ -276,6 +299,7 @@ static int test_default_path_mfdb() {
 int main() {
 	assert_eq(test_save_load_roundtrip(), 0);
 	assert_eq(test_merge_lww(), 0);
+	assert_eq(test_merge_local_newer(), 0);
 	assert_eq(test_ensure_parent_dir(), 0);
 	assert_eq(test_import_file(), 0);
 	assert_eq(test_backup_rotate(), 0);
