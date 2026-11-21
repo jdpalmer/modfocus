@@ -3,13 +3,15 @@
 Terminal task organizer for status and attention — a spreadsheet-style
 workflow that stays in the shell. Command: `modfocus`.
 
-Each task has a status, a title, and who it’s for (Attn). New tasks land in
-`A:Inbox` (capture). Then triage with `s`: `B:Now` (this week — keep it
-small), `C:Soon`, `D:Later`, `E:Waiting` (ball in their court — Attn says who),
-`G:Someday`. Attn is comma-separated short names (`Charles`, `Brian, Jessica`).
-Completed items stay out of the way until you ask for them. Find and focus
-filters keep a long list usable; Tab completes Attn names while focusing or
-editing Attn.
+Each task has a status, a title, who it’s for (Attn), and optional context
+tags (`#home`, `#work`). New tasks land in `A:Inbox` (capture). Then triage
+with `s`: `B:Now` (this week — keep it small), `C:Soon`, `D:Later`,
+`E:Waiting` (ball in their court — Attn says who), `G:Someday`. Attn is
+comma-separated short names (`Charles`, `Brian, Jessica`). Type `#tags` in
+the title when editing or adding — they’re stored separately and shown dim
+after the title (no extra column). Completed items stay out of the way until
+you ask for them. Find and focus keep a long list usable; `f` focuses by Attn
+or `#tag` (Tab completes both).
 
 ## Install
 
@@ -35,10 +37,13 @@ modc build -M . -o modfocus
 ./modfocus --import seed.json
 ./modfocus add buy milk
 ./modfocus add --attn Charles review PR
+./modfocus add pick up dry cleaning #home #errands
+./modfocus add --tag home buy milk
 ```
 
-`add` appends an `A:Inbox` task and prints its id (no TUI). Optional `--attn` /
-`-a` sets Attn.
+`add` appends an `A:Inbox` task and prints its id (no TUI). `#tags` in the
+title are parsed; optional `--attn` / `-a` and repeated `--tag` / `-t` also
+apply.
 
 Default store: `$MFDB`, or `~/.config/modfocus/tasks.json`. Point `--db` /
 `MFDB` at a synced folder if you use the same list on more than one machine.
@@ -67,11 +72,11 @@ flash). If `B:Now` is over 7 it shows red `B:n:demote?`.
 | `x` | Mark complete (hidden unless showing complete) |
 | `X` | Toggle showing completed tasks |
 | `o` | Sort (status → Attn → title) |
-| `t` / Enter | Edit title |
+| `t` / Enter | Edit title (`#tags` in the line are parsed; Tab completes `#…`) |
 | `a` | Edit Attn (comma-separated short names; Tab completes) |
 | `n` | New task (Attn prefilled from current row, then title) |
-| `/` | Find across fields (press again to clear) |
-| `f` | Focus by Attn (press again to clear; Tab completes) |
+| `/` | Find across fields including tags (press again to clear) |
+| `f` | Focus by Attn or `#tag` (press again to clear; Tab completes both) |
 | `g` / `G` | Top / bottom |
 | `C-l` | Redraw |
 | `q` | Quit |

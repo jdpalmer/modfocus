@@ -14,7 +14,8 @@ import "str";
 enum {
 	UiColHeaderRow = 0,
 	UiFooterRows = 1,
-	UiInputCap = TaskTitleCap
+	/* Room for "title #tags" when editing. */
+	UiInputCap = TaskTitleCap + TaskTagsCap + 2
 };
 
 /* Root VERSION (no Make step); trailing newline stripped at display time. */
@@ -264,7 +265,27 @@ static void paint_table(UiState *ui, int cols) {
 			put_clipped(screen_row, c, w_cc, attn, attn_st);
 		}
 		c += w_cc + 1;
-		put_clipped(screen_row, c, w_task, t.title, st);
+		{
+			/* Title primary; tags dim suffix in the same cell (no Tags column). */
+			TermColor bg = text_style_bg(st);
+			TextStyle tag_st = text_style_make(TermColorBase01, bg, 0);
+			int ti = 0;
+			int title_n = (int)len(t.title);
+			int tags_n = (int)len(t.tags);
+			int gap = (title_n > 0 && tags_n > 0) ? 2 : 0;
+			for (; ti < w_task; ti++) {
+				char ch = ' ';
+				TextStyle use = st;
+				if (ti < title_n) {
+					ch = t.title[ti];
+				} else if (tags_n > 0 && ti >= title_n + gap &&
+					ti - title_n - gap < tags_n) {
+					ch = t.tags[ti - title_n - gap];
+					use = tag_st;
+				}
+				screen_put_rune(screen_row, c + ti, ch, use);
+			}
+		}
 	}
 }
 
@@ -345,6 +366,7 @@ static void paint_footer(UiState *ui, int cols) {
 	int total = ui.store != NULL ? ui.store.count : 0;
 	int b_now = count_status(ui.store, "B:Now");
 	bool focus_on = ui.filter != NULL && len(ui.filter.cc) != 0;
+	bool tag_on = ui.filter != NULL && len(ui.filter.tag) != 0;
 	bool find_on = ui.filter != NULL && len(ui.filter.text) != 0;
 	bool a_over = b_now > NowSoftCap;
 	bool compact = false;
@@ -373,6 +395,16 @@ static void paint_footer(UiState *ui, int cols) {
 		if (focus_on && rn < (int)sizeof(rest)) {
 			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " @%.*s",
 				(int)len(ui.filter.cc), ptr(ui.filter.cc));
+		}
+		if (tag_on && rn < (int)sizeof(rest)) {
+			const char[..] tg = ui.filter.tag;
+			if (len(tg) > 0 && tg[0] == '#') {
+				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " %.*s",
+					(int)len(tg), ptr(tg));
+			} else {
+				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " #%.*s",
+					(int)len(tg), ptr(tg));
+			}
 		}
 		if (ui.filter.show_complete && rn < (int)sizeof(rest)) {
 			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " +C");

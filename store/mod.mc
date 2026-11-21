@@ -185,6 +185,7 @@ bool (TaskStore *store).load(const char[..] path) {
 		(void)str_set(&t.status, obj_str(item, "status"));
 		(void)str_set(&t.title, obj_str(item, "title"));
 		(void)str_set(&t.cc, obj_str(item, "cc"));
+		(void)str_set(&t.tags, obj_str(item, "tags"));
 		(void)str_set(&t.updated, obj_str(item, "updated"));
 		if (len(t.title) == 0 && len(t.id) == 0) {
 			t.clear();
@@ -232,6 +233,7 @@ bool (TaskStore *store).save(const char[..] path) {
 			!json_object_set(obj, "status", json_new_string_n(ptr(t.status), len(t.status))) ||
 			!json_object_set(obj, "title", json_new_string_n(ptr(t.title), len(t.title))) ||
 			!json_object_set(obj, "cc", json_new_string_n(ptr(t.cc), len(t.cc))) ||
+			!json_object_set(obj, "tags", json_new_string_n(ptr(t.tags), len(t.tags))) ||
 			!json_object_set(obj, "updated", json_new_string_n(ptr(t.updated), len(t.updated)))) {
 			json_free(obj);
 			return false;

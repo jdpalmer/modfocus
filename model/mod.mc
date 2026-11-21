@@ -13,11 +13,14 @@ enum {
 	TaskIdCap = 40,
 	TaskTitleCap = 256,
 	TaskCcCap = 160,
+	TaskTagsCap = 160,
 	StoreMaxTasks = 4096,
 	FilterTextCap = 128,
 	VisibleMax = StoreMaxTasks,
 	AttnNamesMax = 64,
-	AttnNameCap = 40
+	AttnNameCap = 40,
+	TagNamesMax = 64,
+	TagNameCap = 40
 };
 
 struct Task {
@@ -25,6 +28,7 @@ struct Task {
 	char[..] status;
 	char[..] title;
 	char[..] cc;
+	char[..] tags; /* space-separated #tags */
 	char[..] updated;
 };
 
@@ -37,6 +41,7 @@ struct TaskStore {
 
 struct ViewFilter {
 	char[..] cc;
+	char[..] tag; /* focus substring against tags field */
 	char[..] text;
 	bool show_complete;
 };
@@ -100,6 +105,7 @@ void (Task *t).clear() {
 	str_free(&t.status);
 	str_free(&t.title);
 	str_free(&t.cc);
+	str_free(&t.tags);
 	str_free(&t.updated);
 }
 
@@ -123,6 +129,7 @@ static bool task_copy_into(Task *dst, const Task *src) {
 		!field_set(&dst.status, src.status) ||
 		!field_set(&dst.title, src.title) ||
 		!field_set(&dst.cc, src.cc) ||
+		!field_set(&dst.tags, src.tags) ||
 		!field_set(&dst.updated, src.updated)) {
 		dst.clear();
 		return false;
@@ -140,6 +147,7 @@ void (TaskStore *store).init() {
 
 void (ViewFilter *f).init() {
 	str_free(&f.cc);
+	str_free(&f.tag);
 	str_free(&f.text);
 	memset(f, 0, sizeof(*f));
 	f.show_complete = false;
@@ -350,6 +358,195 @@ static bool ascii_icontains(const char[..] hay, const char[..] needle) {
 	return false;
 }
 
+/* Tags: space/comma-separated; each stored as #name (leading # added). */
+static bool normalize_tags(char[..]* dst, const char[..] src) {
+	char[..] out = str_empty();
+	char one[TagNameCap + 2] = {0};
+	size_t i = 0;
+	defer str_free(&out);
+	while (i < len(src)) {
+		size_t start = 0;
+		size_t end = 0;
+		size_t n = 0;
+		bool seen = false;
+		while (i < len(src) && (src[i] == ' ' || src[i] == '\t' || src[i] == ',')) {
+			i++;
+		}
+		start = i;
+		while (i < len(src) && src[i] != ' ' && src[i] != '\t' && src[i] != ',') {
+			i++;
+		}
+		end = i;
+		if (end <= start) {
+			continue;
+		}
+		if (src[start] == '#') {
+			start++;
+		}
+		while (start < end && (src[start] == ' ' || src[start] == '\t')) {
+			start++;
+		}
+		while (end > start && (src[end - 1] == ' ' || src[end - 1] == '\t')) {
+			end--;
+		}
+		if (end <= start) {
+			continue;
+		}
+		n = end - start;
+		if (n > TagNameCap) {
+			n = TagNameCap;
+		}
+		one[0] = '#';
+		memcpy(one + 1, ptr(src) + start, n);
+		one[n + 1] = 0;
+		{
+			const char[..] nv = ranged(one, n + 1);
+			size_t oi = 0;
+			while (oi < len(out)) {
+				size_t os = 0;
+				size_t oe = 0;
+				while (oi < len(out) && out[oi] == ' ') {
+					oi++;
+				}
+				os = oi;
+				while (oi < len(out) && out[oi] != ' ') {
+					oi++;
+				}
+				oe = oi;
+				if (oe > os && ascii_ieq(out[os..oe], nv)) {
+					seen = true;
+					break;
+				}
+			}
+			if (seen) {
+				continue;
+			}
+			if (len(out) > 0) {
+				if (!str_append(&out, " ") || !str_append(&out, nv)) {
+					return false;
+				}
+			} else if (!str_append(&out, nv)) {
+				return false;
+			}
+		}
+	}
+	return field_set(dst, out);
+}
+
+bool (TaskStore *store).set_tags(int index, const char[..] tags) {
+	Task *t = store.get(index);
+	if (t == NULL) {
+		return false;
+	}
+	if (!normalize_tags(&t.tags, tags)) {
+		return false;
+	}
+	t.touch();
+	store.dirty = true;
+	return true;
+}
+
+static bool tag_body_char(char c) {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		(c >= '0' && c <= '9') || c == '_' || c == '-';
+}
+
+static bool tag_start_char(char c) {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+/*
+ * Pull whitespace-bounded #tags (must start with a letter) out of src.
+ * Remaining text becomes title (spaces collapsed); tags normalized as #names.
+ */
+bool model_parse_title_tags(const char[..] src, char[..]* title_out, char[..]* tags_out) {
+	char[..] title = str_empty();
+	char[..] tags = str_empty();
+	size_t i = 0;
+	bool sp = false;
+	defer str_free(&title);
+	defer str_free(&tags);
+	if (title_out == NULL || tags_out == NULL) {
+		return false;
+	}
+	while (i < len(src)) {
+		bool at_bound = (i == 0) || src[i - 1] == ' ' || src[i - 1] == '\t';
+		if (at_bound && src[i] == '#' && i + 1 < len(src) && tag_start_char(src[i + 1])) {
+			size_t start = i;
+			size_t end = i + 1;
+			while (end < len(src) && tag_body_char(src[end])) {
+				end++;
+			}
+			/* Only a tag if ended by whitespace/end (not issue#12 glued). */
+			if (end >= len(src) || src[end] == ' ' || src[end] == '\t') {
+				const char[..] tok = src[start..end];
+				if (len(tags) > 0) {
+					if (!str_append(&tags, " ") || !str_append(&tags, tok)) {
+						return false;
+					}
+				} else if (!str_append(&tags, tok)) {
+					return false;
+				}
+				i = end;
+				continue;
+			}
+		}
+		char ch = src[i];
+		if (ch == ' ' || ch == '\t') {
+			sp = true;
+			i++;
+			continue;
+		}
+		if (sp && len(title) > 0) {
+			if (!str_append(&title, " ")) {
+				return false;
+			}
+		}
+		sp = false;
+		{
+			char one[1] = {ch};
+			if (!str_append(&title, ranged(one, 1))) {
+				return false;
+			}
+		}
+		i++;
+	}
+	if (!field_set(title_out, title)) {
+		return false;
+	}
+	return normalize_tags(tags_out, tags);
+}
+
+/* Write "title #a #b" into dst (fixed buffer). */
+bool model_format_title_tags(const char[..] title, const char[..] tags, char[..] dst) {
+	if (ptr(dst) == NULL || cap(dst) == 0) {
+		return false;
+	}
+	size_t need = len(title);
+	if (len(title) > 0 && len(tags) > 0) {
+		need += 1;
+	}
+	need += len(tags);
+	if (need + 1 > cap(dst)) {
+		return false;
+	}
+	size_t off = 0;
+	if (len(title) > 0) {
+		memcpy(ptr(dst) + off, ptr(title), len(title));
+		off += len(title);
+	}
+	if (len(title) > 0 && len(tags) > 0) {
+		dst[off] = ' ';
+		off++;
+	}
+	if (len(tags) > 0) {
+		memcpy(ptr(dst) + off, ptr(tags), len(tags));
+		off += len(tags);
+	}
+	dst[off] = 0;
+	return true;
+}
+
 struct AttnName {
 	char[..] s;
 };
@@ -454,6 +651,118 @@ bool (TaskStore *store).attn_complete(const char[..] prefix, char[..] out) {
 	}
 }
 
+struct TagName {
+	char[..] s;
+};
+
+static void tag_names_free(TagName[..] names, int count) {
+	for (int i = 0; i < count; i++) {
+		str_free(&names[i].s);
+	}
+}
+
+static int collect_tag_names(const TaskStore *store, TagName[..] names) {
+	int count = 0;
+	if (store == NULL || ptr(names) == NULL) {
+		return 0;
+	}
+	for (int ti = 0; ti < store.count; ti++) {
+		const char[..] tags = store.tasks[ti].tags;
+		size_t i = 0;
+		while (i < len(tags)) {
+			size_t start = 0;
+			size_t end = 0;
+			bool seen = false;
+			while (i < len(tags) && (tags[i] == ' ' || tags[i] == '\t')) {
+				i++;
+			}
+			start = i;
+			while (i < len(tags) && tags[i] != ' ' && tags[i] != '\t') {
+				i++;
+			}
+			end = i;
+			if (end > start) {
+				const char[..] nv = tags[start..end];
+				for (int j = 0; j < count; j++) {
+					if (ascii_ieq(names[j].s, nv)) {
+						seen = true;
+						break;
+					}
+				}
+				if (!seen && count < (int)len(names)) {
+					if (!field_set(&names[count].s, nv)) {
+						tag_names_free(names, count);
+						return 0;
+					}
+					count++;
+				}
+			}
+		}
+	}
+	return count;
+}
+
+/* Complete a tag token; prefix may omit leading #. Writes #name into out. */
+bool (TaskStore *store).tag_complete(const char[..] prefix, char[..] out) {
+	TagName names[TagNamesMax] = {0};
+	char wantbuf[TagNameCap + 2] = {0};
+	const char[..] want = {0};
+	int matches = 0;
+	int first = -1;
+	size_t common = 0;
+	if (ptr(out) == NULL || cap(out) == 0) {
+		return false;
+	}
+	if (len(prefix) > 0 && prefix[0] == '#') {
+		want = prefix;
+	} else if (len(prefix) + 1 < sizeof(wantbuf)) {
+		wantbuf[0] = '#';
+		if (len(prefix) > 0) {
+			memcpy(wantbuf + 1, ptr(prefix), len(prefix));
+		}
+		wantbuf[len(prefix) + 1] = 0;
+		want = ranged(wantbuf, len(prefix) + 1);
+	} else {
+		return false;
+	}
+	int n = collect_tag_names(store, ranged(names, TagNamesMax));
+	defer tag_names_free(ranged(names, TagNamesMax), n);
+	for (int i = 0; i < n; i++) {
+		const char[..] cand = names[i].s;
+		if (!ascii_istartswith(cand, want)) {
+			continue;
+		}
+		if (first < 0) {
+			first = i;
+			common = len(cand);
+		} else {
+			const char[..] a = names[first].s;
+			size_t k = 0;
+			while (k < common && k < len(a) && k < len(cand) &&
+				ascii_lower(a[k]) == ascii_lower(cand[k])) {
+				k++;
+			}
+			common = k;
+		}
+		matches++;
+	}
+	if (matches == 0 || first < 0) {
+		return false;
+	}
+	if (matches == 1) {
+		(void)cstr_write(out, names[first].s);
+		return true;
+	}
+	{
+		const char[..] a = names[first].s;
+		if (common > len(a)) {
+			common = len(a);
+		}
+		(void)cstr_write(out, a[0..common]);
+		return common > len(want);
+	}
+}
+
 static int status_rank(const char[..] s) {
 	int i = model_status_index(s);
 	if (i < 0) {
@@ -505,9 +814,13 @@ int (TaskStore *store).build_visible(ViewFilter *f, int[..] out) {
 		if (len(f.cc) != 0 && !ascii_icontains(t.cc, f.cc)) {
 			continue;
 		}
+		if (len(f.tag) != 0 && !ascii_icontains(t.tags, f.tag)) {
+			continue;
+		}
 		if (len(f.text) != 0) {
 			if (!ascii_icontains(t.title, f.text) &&
 				!ascii_icontains(t.cc, f.text) &&
+				!ascii_icontains(t.tags, f.text) &&
 				!ascii_icontains(t.status, f.text)) {
 				continue;
 			}
