@@ -402,7 +402,49 @@ static void paint_footer(UiState* ui, int cols) {
 	}
 	if (ui.filter != NULL) {
 		if (focus_on && rn < (int) sizeof(rest)) {
-			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " @%.*s", (int)len(ui.filter.cc), ptr(ui.filter.cc));
+			/* Mirror #tag: @ on each Attn name ("Brian, Jessica" → "@Brian, @Jessica"). */
+			char atbuf[160] = { 0 };
+			size_t ai = 0;
+			size_t ao = 0;
+			const char[..] cc = ui.filter.cc;
+			while (ai < len(cc) && ao + 2 < sizeof(atbuf)) {
+				size_t start = 0;
+				size_t end = 0;
+				while (ai < len(cc) && (cc[ai] == ' ' || cc[ai] == '\t')) {
+					ai++;
+				}
+				start = ai;
+				while (ai < len(cc) && cc[ai] != ',') {
+					ai++;
+				}
+				end = ai;
+				while (end > start && (cc[end - 1] == ' ' || cc[end - 1] == '\t')) {
+					end--;
+				}
+				if (end > start) {
+					size_t n = end - start;
+					if (ao > 0) {
+						if (ao + 2 >= sizeof(atbuf)) {
+							break;
+						}
+						atbuf[ao++] = ',';
+						atbuf[ao++] = ' ';
+					}
+					if (ao + 1 + n >= sizeof(atbuf)) {
+						break;
+					}
+					atbuf[ao++] = '@';
+					memcpy(atbuf + ao, ptr(cc) + start, n);
+					ao += n;
+					atbuf[ao] = 0;
+				}
+				if (ai < len(cc) && cc[ai] == ',') {
+					ai++;
+				}
+			}
+			if (ao > 0) {
+				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " %s", atbuf);
+			}
 		}
 		if (tag_on && rn < (int) sizeof(rest)) {
 			const char[..] tg = ui.filter.tag;
