@@ -52,7 +52,7 @@ void ui_init(UiState* ui, TaskStore* store, ViewFilter* filter, int[..] visible)
 	ui.visible = visible;
 	ui.selected = 0;
 	ui.scroll = 0;
-	snprintf(ui.mode_line, sizeof(ui.mode_line), "modfocus");
+	ui.mode_line[0] = 0;
 }
 
 void ui_set_status(UiState* ui, const char[..] msg) {
