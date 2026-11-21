@@ -155,6 +155,26 @@ static int test_tag_complete() {
 	return 0;
 }
 
+/* Multi-match: extend to the shared LCP; no progress → false. */
+static int test_complete_ambiguous_lcp() {
+	TaskStore store = { 0 };
+	char out[64] = { 0 };
+	store.init();
+	int a = add_titled(&store, "one");
+	int b = add_titled(&store, "two");
+	assert(a >= 0 && b >= 0);
+	assert(store.set_cc(a, "Brian"));
+	assert(store.set_cc(b, "Bridget"));
+	assert(store.attn_complete("B", ranged(out, sizeof(out))));
+	assert(str_eq(ranged(out, strlen(out)), "Bri"));
+	assert(!store.attn_complete("Bri", ranged(out, sizeof(out))));
+	assert(store.set_tags(a, "#work #workshop"));
+	assert(store.tag_complete("#w", ranged(out, sizeof(out))));
+	assert(str_eq(ranged(out, strlen(out)), "#work"));
+	assert(!store.tag_complete("#work", ranged(out, sizeof(out))));
+	return 0;
+}
+
 static int test_cycle_status_skips_complete() {
 	TaskStore store = { 0 };
 	store.init();
@@ -241,6 +261,7 @@ int main() {
 	assert_eq(test_format_title_tags(), 0);
 	assert_eq(test_attn_complete(), 0);
 	assert_eq(test_tag_complete(), 0);
+	assert_eq(test_complete_ambiguous_lcp(), 0);
 	assert_eq(test_cycle_status_skips_complete(), 0);
 	assert_eq(test_build_visible_text(), 0);
 	assert_eq(test_build_visible_focus(), 0);
