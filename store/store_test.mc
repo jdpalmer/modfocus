@@ -67,6 +67,55 @@ static int add_titled(TaskStore* store, const char[..] title) {
 	return store.count - 1;
 }
 
+static int test_load_rejects_corrupt() {
+	pool p {
+		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-corrupt-");
+		assert(dok && len(dir) > 0);
+		defer(void)fs_remove(dir);
+		auto (db, pok) = path_join(&p, dir, "tasks.json");
+		assert(pok);
+		{
+			auto (w, wok) = writer_open(db, OpenWrite | OpenCreate | OpenTrunc, 0);
+			assert(wok);
+			defer w.close();
+			const char[..] bad = "{not json";
+			auto (n, ok) = w.write(bad);
+			assert(ok && n == (int64_t)len(bad));
+			assert(w.flush());
+		}
+		assert(store_path_is_file(db));
+		TaskStore store = { 0 };
+		store.init();
+		assert(!store.load(db));
+		assert_eq(store.count, 0);
+		/* Valid empty tasks array still loads. */
+		{
+			auto (w, wok) = writer_open(db, OpenWrite | OpenCreate | OpenTrunc, 0);
+			assert(wok);
+			defer w.close();
+			const char[..] empty = "{\"version\":1,\"tasks\":[]}";
+			auto (n, ok) = w.write(empty);
+			assert(ok && n == (int64_t)len(empty));
+			assert(w.flush());
+		}
+		assert(store.load(db));
+		assert_eq(store.count, 0);
+		/* Object without tasks is invalid. */
+		{
+			auto (w, wok) = writer_open(db, OpenWrite | OpenCreate | OpenTrunc, 0);
+			assert(wok);
+			defer w.close();
+			const char[..] notasks = "{\"version\":1}";
+			auto (n, ok) = w.write(notasks);
+			assert(ok && n == (int64_t)len(notasks));
+			assert(w.flush());
+		}
+		assert(!store.load(db));
+		(void)fs_remove(db);
+	}
+	return 0;
+}
+
 static int test_save_load_roundtrip() {
 	pool p {
 		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-store-");
@@ -357,6 +406,7 @@ static int test_default_path_mfdb() {
 }
 
 int main() {
+	assert_eq(test_load_rejects_corrupt(), 0);
 	assert_eq(test_save_load_roundtrip(), 0);
 	assert_eq(test_next_id_after_load(), 0);
 	assert_eq(test_merge_lww(), 0);

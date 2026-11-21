@@ -803,6 +803,10 @@ static bool cli_add_task() {
 		}
 		(void)store_recover_primary(db_path_view());
 		if (!g_app.store.load(db_path_view())) {
+			if (store_path_is_file(db_path_view())) {
+				fprintf(stderr, "modfocus: load failed (refusing to overwrite)\n");
+				return false;
+			}
 			g_app.store.init();
 		}
 		int at = add_inbox_task(title, merged, ranged(g_app.add_attn, strlen(g_app.add_attn)), str_empty());
@@ -862,7 +866,11 @@ int app_run(const char[..][..] args) {
 	} else {
 		(void)store_recover_primary(db_path_view());
 		if (!g_app.store.load(db_path_view())) {
-			/* start empty */
+			if (store_path_is_file(db_path_view())) {
+				fprintf(stderr, "modfocus: load failed: %s\n", g_app.db_path);
+				return 1;
+			}
+			/* Truly missing — start empty. */
 			g_app.store.init();
 			ui_set_status(&g_app.ui, "new database");
 		}

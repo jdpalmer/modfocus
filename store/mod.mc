@@ -193,6 +193,17 @@ static void store_rotate_backups(const char[..] path) {
 	return copy_file(ranged(bak1, strlen(bak1)), path);
 }
 
+/* True when path exists as a regular file. */
+[[nodiscard]] bool store_path_is_file(const char[..] path) {
+	auto (info, ok) = fs_stat(path);
+	return ok && info.kind == KindFile;
+}
+
+/*
+ * Load tasks from path. False on I/O, parse, schema, or capacity errors —
+ * the store is left empty. Callers must use store_path_is_file to tell a
+ * missing DB (create empty) from a corrupt one (refuse to overwrite).
+ */
 [[nodiscard]] bool (TaskStore* store).load(const char[..] path) {
 	JsonError err = { 0 };
 	store.init();
@@ -211,7 +222,7 @@ static void store_rotate_backups(const char[..] path) {
 	}
 	const JsonValue* tasks = json_object_get(root, "tasks");
 	if (tasks == NULL || tasks.type != JSON_ARRAY) {
-		return true;
+		return false;
 	}
 	for (size_t i = 0; i < json_array_size(tasks); i++) {
 		const JsonValue* item = json_array_get(tasks, i);
@@ -231,7 +242,8 @@ static void store_rotate_backups(const char[..] path) {
 		}
 		if (!store.add(&t)) {
 			t.clear();
-			break;
+			store.init();
+			return false;
 		}
 		t.clear();
 		/* add deep-copied; drop temps */
@@ -320,7 +332,12 @@ static void store_rotate_backups(const char[..] path) {
 	if (!seed.load(src)) {
 		return false;
 	}
+	(void)store_recover_primary(dst);
 	if (!store.load(dst)) {
+		if (store_path_is_file(dst)) {
+			/* Corrupt destination — do not clobber. */
+			return false;
+		}
 		store.init();
 	}
 	(void)store.merge(&seed);
