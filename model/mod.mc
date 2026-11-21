@@ -856,6 +856,7 @@ int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
 
 /* Replace task at index with a deep copy of src (for LWW merge). */
 [[nodiscard]] bool (TaskStore* store).replace(int index, const Task* src) {
+	Task tmp = { 0 };
 	if (src == NULL) {
 		return false;
 	}
@@ -863,10 +864,13 @@ int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
 	if (t == NULL) {
 		return false;
 	}
-	t.clear();
-	if (!task_copy_into(t, src)) {
+	/* Copy into a temp first so a failed copy cannot blank the live task. */
+	if (!task_copy_into(&tmp, src)) {
 		return false;
 	}
+	t.clear();
+	*t = tmp;
+	memset(&tmp, 0, sizeof(tmp));
 	store.dirty = true;
 	return true;
 }
