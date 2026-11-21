@@ -276,7 +276,7 @@ static int test_backup_rotate() {
 		}
 		assert(store.set_title(at, "two"));
 		assert(store.save(db));
-		/* Second save rotates prior live → bak.1. */
+		/* Second save copies prior live → bak.1 (live stays until atomic replace). */
 		assert(load_title(bak1, ranged(title, sizeof(title))));
 		assert(str_eq(ranged(title, strlen(title)), "one"));
 		assert(load_title(db, ranged(title, sizeof(title))));
@@ -309,6 +309,37 @@ static int test_backup_rotate() {
 	return 0;
 }
 
+static int test_recover_primary() {
+	pool p {
+		char title[64] = { 0 };
+		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-recover-");
+		assert(dok && len(dir) > 0);
+		defer(void)fs_remove(dir);
+		auto (db, pok) = path_join(&p, dir, "tasks.json");
+		assert(pok);
+		auto (bak1, b1ok) = bak_slot(&p, db, 1);
+		assert(b1ok);
+		TaskStore store = { 0 };
+		store.init();
+		int at = add_titled(&store, "safe");
+		assert(at >= 0);
+		assert(store.save(db));
+		assert(store.set_title(at, "newer"));
+		assert(store.save(db));
+		assert(fs_remove(db));
+		{
+			auto (info, ok) = fs_stat(db);
+			assert(!ok || info.kind != KindFile);
+		}
+		assert(store_recover_primary(db));
+		assert(load_title(db, ranged(title, sizeof(title))));
+		assert(str_eq(ranged(title, strlen(title)), "safe"));
+		(void)fs_remove(bak1);
+		(void)fs_remove(db);
+	}
+	return 0;
+}
+
 static int test_default_path_mfdb() {
 	pool p {
 		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-mfdb-");
@@ -333,6 +364,7 @@ int main() {
 	assert_eq(test_ensure_parent_dir(), 0);
 	assert_eq(test_import_file(), 0);
 	assert_eq(test_backup_rotate(), 0);
+	assert_eq(test_recover_primary(), 0);
 	assert_eq(test_default_path_mfdb(), 0);
 	return 0;
 }

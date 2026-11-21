@@ -54,37 +54,6 @@ static bool backup_due(const char[..] path) {
 	return now - (info.mtime_ns / 1000000000L) >= BackupMinAgeSec;
 }
 
-/*
- * Rotate path.bak.(N-1) → path.bak.N, then path → path.bak.1.
- * Best-effort: failure must not block the subsequent save.
- */
-static void store_rotate_backups(const char[..] path) {
-	char older[BackupPathCap] = { 0 };
-	char newer[BackupPathCap] = { 0 };
-	auto (live, lok) = fs_stat(path);
-	if (!lok || live.kind != KindFile) {
-		return;
-	}
-	if (!backup_due(path)) {
-		return;
-	}
-	for (int i = BackupKeep; i >= 2; i--) {
-		if (!backup_slot_path(ranged(older, sizeof(older)), path, i) || !backup_slot_path(ranged(newer, sizeof(newer)), path, i - 1)) {
-			return;
-		}
-		(void)fs_remove(ranged(older, strlen(older)));
-		auto (prev, pok) = fs_stat(ranged(newer, strlen(newer)));
-		if (pok && prev.kind == KindFile) {
-			(void)fs_rename(ranged(newer, strlen(newer)), ranged(older, strlen(older)));
-		}
-	}
-	if (!backup_slot_path(ranged(newer, sizeof(newer)), path, 1)) {
-		return;
-	}
-	(void)fs_remove(ranged(newer, strlen(newer)));
-	(void)fs_rename(path, ranged(newer, strlen(newer)));
-}
-
 static const char[..] obj_str(const JsonValue* obj, const char* key) {
 	if (obj == NULL || key == NULL) {
 		return str_from_cstr("");
@@ -152,6 +121,76 @@ static(char[..], bool) read_file_all(const char[..] path) {
 		}
 	}
 	return (data, true);
+}
+
+static bool copy_file(const char[..] from, const char[..] to) {
+	auto (data, ok) = read_file_all(from);
+	if (!ok) {
+		return false;
+	}
+	defer str_free(&data);
+	auto (w, wok) = writer_open(to, OpenWrite | OpenCreate | OpenTrunc, 0);
+	if (!wok) {
+		return false;
+	}
+	defer w.close();
+	auto (n, wok2) = w.write(data);
+	if (!wok2 || n != (int64_t)len(data)) {
+		return false;
+	}
+	return w.flush();
+}
+
+/*
+ * Rotate path.bak.(N-1) → path.bak.N, then copy live → path.bak.1.
+ * Live file stays in place so a crash cannot leave the DB missing.
+ * Best-effort: failure must not block the subsequent atomic replace.
+ */
+static void store_rotate_backups(const char[..] path) {
+	char older[BackupPathCap] = { 0 };
+	char newer[BackupPathCap] = { 0 };
+	auto (live, lok) = fs_stat(path);
+	if (!lok || live.kind != KindFile) {
+		return;
+	}
+	if (!backup_due(path)) {
+		return;
+	}
+	for (int i = BackupKeep; i >= 2; i--) {
+		if (!backup_slot_path(ranged(older, sizeof(older)), path, i) || !backup_slot_path(ranged(newer, sizeof(newer)), path, i - 1)) {
+			return;
+		}
+		(void)fs_remove(ranged(older, strlen(older)));
+		auto (prev, pok) = fs_stat(ranged(newer, strlen(newer)));
+		if (pok && prev.kind == KindFile) {
+			(void)fs_rename(ranged(newer, strlen(newer)), ranged(older, strlen(older)));
+		}
+	}
+	if (!backup_slot_path(ranged(newer, sizeof(newer)), path, 1)) {
+		return;
+	}
+	(void)fs_remove(ranged(newer, strlen(newer)));
+	(void)copy_file(path, ranged(newer, strlen(newer)));
+}
+
+/*
+ * If path is missing but path.bak.1 exists, copy bak → path.
+ * True when the primary exists afterward (already or recovered).
+ */
+[[nodiscard]] bool store_recover_primary(const char[..] path) {
+	char bak1[BackupPathCap] = { 0 };
+	auto (info, ok) = fs_stat(path);
+	if (ok && info.kind == KindFile) {
+		return true;
+	}
+	if (!backup_slot_path(ranged(bak1, sizeof(bak1)), path, 1)) {
+		return false;
+	}
+	auto (b, bok) = fs_stat(ranged(bak1, strlen(bak1)));
+	if (!bok || b.kind != KindFile) {
+		return false;
+	}
+	return copy_file(ranged(bak1, strlen(bak1)), path);
 }
 
 [[nodiscard]] bool (TaskStore* store).load(const char[..] path) {
@@ -261,18 +300,9 @@ static(char[..], bool) read_file_all(const char[..] path) {
 				return false;
 			}
 		}
+		/* Copy-based backup while live still exists, then atomic replace. */
 		store_rotate_backups(path);
 		if (!fs_rename(tmp_path, path)) {
-			/* If we moved the live file to bak.1, try to put it back. */
-			char bak1[BackupPathCap] = { 0 };
-			if (backup_slot_path(ranged(bak1, sizeof(bak1)), path, 1)) {
-				auto (b, bok) = fs_stat(ranged(bak1, strlen(bak1)));
-				auto (cur, cok) = fs_stat(path);
-				(void)cur;
-				if (bok && b.kind == KindFile && !cok) {
-					(void)fs_rename(ranged(bak1, strlen(bak1)), path);
-				}
-			}
 			(void)fs_remove(tmp_path);
 			return false;
 		}

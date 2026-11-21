@@ -801,6 +801,7 @@ static bool cli_add_task() {
 				return false;
 			}
 		}
+		(void)store_recover_primary(db_path_view());
 		if (!g_app.store.load(db_path_view())) {
 			g_app.store.init();
 		}
@@ -858,10 +859,13 @@ int app_run(const char[..][..] args) {
 		}
 	} else if (g_app.add_only) {
 		return cli_add_task() ? 0: 1;
-	} else if (!g_app.store.load(db_path_view())) {
-		/* start empty */
-		g_app.store.init();
-		ui_set_status(&g_app.ui, "new database");
+	} else {
+		(void)store_recover_primary(db_path_view());
+		if (!g_app.store.load(db_path_view())) {
+			/* start empty */
+			g_app.store.init();
+			ui_set_status(&g_app.ui, "new database");
+		}
 	}
 	note_db_mtime();
 	refresh_visible();
