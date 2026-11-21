@@ -29,6 +29,10 @@ static int test_attn_space_split() {
 	assert(str_eq(store.tasks[at].cc, "Brian, Jessica"));
 	assert(store.set_cc(at, "  Ada   Lovelace  "));
 	assert(str_eq(store.tasks[at].cc, "Ada Lovelace"));
+	assert(store.set_cc(at, "@Charles"));
+	assert(str_eq(store.tasks[at].cc, "Charles"));
+	assert(store.set_cc(at, "@Brian @Jessica"));
+	assert(str_eq(store.tasks[at].cc, "Brian, Jessica"));
 	return 0;
 }
 

@@ -267,15 +267,20 @@ static bool attn_has_comma(const char[..] src) {
 	return false;
 }
 
-/* Collapse internal whitespace; result is pool-backed. */
+/* Collapse internal whitespace; strip a leading @; result is pool-backed. */
 static(char[..], bool) attn_collapse_name([[region]] Pool * p, const char[..] src) {
 	char[..] dst = { 0 };
 	bool sp = false;
+	bool seen = false;
 	for (auto c: src) {
+		if (!seen && c == '@') {
+			continue;
+		}
 		if (attn_is_space(c)) {
 			sp = true;
 			continue;
 		}
+		seen = true;
 		if (sp && len(dst) > 0) {
 			if (!p.append(&dst, " ")) {
 				return (str_empty(), false);
