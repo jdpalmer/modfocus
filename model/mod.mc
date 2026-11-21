@@ -623,12 +623,41 @@ static bool attn_token_end(char c) {
 	return (title, tags, ok);
 }
 
-/* Write "title #a #b" into dst (fixed buffer). */
-[[nodiscard]] bool model_format_title_tags(const char[..] title, const char[..] tags, char[..] dst) {
+/* Write "@A, @B title #a #b" into dst (fixed buffer). */
+[[nodiscard]] bool model_format_task_line(const char[..] title, const char[..] tags, const char[..] attn, char[..] dst) {
+	size_t need = 0;
+	size_t off = 0;
+	size_t ai = 0;
+	int attn_names = 0;
 	if (ptr(dst) == NULL || cap(dst) == 0) {
 		return false;
 	}
-	size_t need = len(title);
+	while (ai < len(attn)) {
+		size_t start = 0;
+		size_t end = 0;
+		while (ai < len(attn) && (attn[ai] == ' ' || attn[ai] == '\t')) {
+			ai++;
+		}
+		start = ai;
+		while (ai < len(attn) && attn[ai] != ',') {
+			ai++;
+		}
+		end = ai;
+		while (end > start && (attn[end - 1] == ' ' || attn[end - 1] == '\t')) {
+			end--;
+		}
+		if (end > start) {
+			need +=(attn_names > 0 ? 2: 0) + 1 + (end - start);
+			attn_names++;
+		}
+		if (ai < len(attn) && attn[ai] == ',') {
+			ai++;
+		}
+	}
+	if (attn_names > 0 && (len(title) > 0 || len(tags) > 0)) {
+		need += 1;
+	}
+	need += len(title);
 	if (len(title) > 0 && len(tags) > 0) {
 		need += 1;
 	}
@@ -636,14 +665,46 @@ static bool attn_token_end(char c) {
 	if (need + 1 > cap(dst)) {
 		return false;
 	}
-	size_t off = 0;
+	ai = 0;
+	attn_names = 0;
+	while (ai < len(attn)) {
+		size_t start = 0;
+		size_t end = 0;
+		while (ai < len(attn) && (attn[ai] == ' ' || attn[ai] == '\t')) {
+			ai++;
+		}
+		start = ai;
+		while (ai < len(attn) && attn[ai] != ',') {
+			ai++;
+		}
+		end = ai;
+		while (end > start && (attn[end - 1] == ' ' || attn[end - 1] == '\t')) {
+			end--;
+		}
+		if (end > start) {
+			size_t n = end - start;
+			if (attn_names > 0) {
+				dst[off++] = ',';
+				dst[off++] = ' ';
+			}
+			dst[off++] = '@';
+			memcpy(ptr(dst) + off, ptr(attn) + start, n);
+			off += n;
+			attn_names++;
+		}
+		if (ai < len(attn) && attn[ai] == ',') {
+			ai++;
+		}
+	}
+	if (attn_names > 0 && (len(title) > 0 || len(tags) > 0)) {
+		dst[off++] = ' ';
+	}
 	if (len(title) > 0) {
 		memcpy(ptr(dst) + off, ptr(title), len(title));
 		off += len(title);
 	}
 	if (len(title) > 0 && len(tags) > 0) {
-		dst[off] = ' ';
-		off++;
+		dst[off++] = ' ';
 	}
 	if (len(tags) > 0) {
 		memcpy(ptr(dst) + off, ptr(tags), len(tags));
@@ -651,6 +712,11 @@ static bool attn_token_end(char c) {
 	}
 	dst[off] = 0;
 	return true;
+}
+
+/* Write "title #a #b" into dst (fixed buffer). */
+[[nodiscard]] bool model_format_title_tags(const char[..] title, const char[..] tags, char[..] dst) {
+	return model_format_task_line(title, tags, str_empty(), dst);
 }
 
 struct NameEntry {

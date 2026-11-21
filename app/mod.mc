@@ -487,7 +487,7 @@ static void handle_normal_key(uint32_t key) {
 	}
 	if (key == 't' || key == (uint32_t)TermKeyEnter) {
 		char joined[UiInputCap] = { 0 };
-		if (!model_format_title_tags(t.title, t.tags, ranged(joined, sizeof(joined)))) {
+		if (!model_format_task_line(t.title, t.tags, t.cc, ranged(joined, sizeof(joined)))) {
 			begin_edit(EditTitle, "title (@attn #tags): ", t.title);
 		} else {
 			begin_edit(EditTitle, "title (@attn #tags): ", ranged(joined, strlen(joined)));

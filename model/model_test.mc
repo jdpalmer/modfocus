@@ -158,6 +158,8 @@ static int test_format_title_tags() {
 	assert(str_eq(ranged(buf, strlen(buf)), "hello #a #b"));
 	assert(model_format_title_tags("only", "", ranged(buf, sizeof(buf))));
 	assert(str_eq(ranged(buf, strlen(buf)), "only"));
+	assert(model_format_task_line("review", "#work", "Brian, Jessica", ranged(buf, sizeof(buf))));
+	assert(str_eq(ranged(buf, strlen(buf)), "@Brian, @Jessica review #work"));
 	return 0;
 }
 
