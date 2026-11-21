@@ -247,6 +247,10 @@ static int test_build_visible_text() {
 	n = store.build_visible(&f, ranged(visible, 8));
 	assert_eq(n, 1);
 	assert_eq(visible[0], b);
+	(void)str_set(&f.text, "@Ada");
+	n = store.build_visible(&f, ranged(visible, 8));
+	assert_eq(n, 1);
+	assert_eq(visible[0], b);
 	(void)str_set(&f.text, "errand");
 	n = store.build_visible(&f, ranged(visible, 8));
 	assert_eq(n, 1);

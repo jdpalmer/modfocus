@@ -884,7 +884,13 @@ int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
 			continue;
 		}
 		if (len(f.text) != 0) {
-			if (!ascii_icontains(t.title, f.text) && !ascii_icontains(t.cc, f.text) && !ascii_icontains(t.tags, f.text) && !ascii_icontains(t.status, f.text)) {
+			bool hit = ascii_icontains(t.title, f.text) || ascii_icontains(t.cc, f.text) || ascii_icontains(t.tags, f.text) || ascii_icontains(t.status, f.text);
+			/* @Charles in find matches Attn "Charles". */
+			if (!hit && len(f.text) > 0 && f.text[0] == '@') {
+				const char[..] bare = f.text[1 ..];
+				hit = ascii_icontains(t.title, bare) || ascii_icontains(t.cc, bare) || ascii_icontains(t.tags, bare) || ascii_icontains(t.status, bare);
+			}
+			if (!hit) {
 				continue;
 			}
 		}
