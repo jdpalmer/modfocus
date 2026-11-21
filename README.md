@@ -35,6 +35,7 @@ modc build -M . -o modfocus
 ```bash
 modc test -M . model
 modc test -M . store
+modc test -M . cli_add_test.mc
 ```
 
 ## Run
