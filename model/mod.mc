@@ -256,38 +256,95 @@ bool (TaskStore *store).set_title(int index, const char[..] title) {
 	return true;
 }
 
-/* Attn: comma-separated short names; trim and join with ", ". */
+static bool attn_is_space(char c) {
+	return c == ' ' || c == '\t';
+}
+
+static bool attn_has_comma(const char[..] src) {
+	for (size_t i = 0; i < len(src); i++) {
+		if (src[i] == ',') {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Collapse internal whitespace to single spaces; trim ends into dst. */
+static bool attn_collapse_name(char[..]* dst, const char[..] src) {
+	bool sp = false;
+	(void)str_set(dst, "");
+	for (size_t i = 0; i < len(src); i++) {
+		if (attn_is_space(src[i])) {
+			sp = true;
+			continue;
+		}
+		if (sp && len(*dst) > 0) {
+			if (!str_append(dst, " ")) {
+				return false;
+			}
+		}
+		sp = false;
+		{
+			char one[1] = {src[i]};
+			if (!str_append(dst, ranged(one, 1))) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+static bool attn_append_name(char[..]* out, const char[..] raw) {
+	char[..] name = str_empty();
+	defer str_free(&name);
+	if (!attn_collapse_name(&name, raw) || len(name) == 0) {
+		return true;
+	}
+	if (len(*out) > 0) {
+		return str_append(out, ", ") && str_append(out, name);
+	}
+	return str_append(out, name);
+}
+
+/*
+ * Attn names joined with ", ".
+ * If src has any comma → split on commas (spaces inside a name kept, collapsed).
+ * Else → split on whitespace ("Brian Jessica" → "Brian, Jessica").
+ */
 static bool normalize_attn(char[..]* dst, const char[..] src) {
 	char[..] out = str_empty();
 	size_t i = 0;
 	defer str_free(&out);
-	while (i < len(src)) {
-		size_t start = 0;
-		size_t end = 0;
-		const char[..] name = {0};
-		while (i < len(src) && (src[i] == ' ' || src[i] == '\t')) {
-			i++;
-		}
-		start = i;
-		while (i < len(src) && src[i] != ',') {
-			i++;
-		}
-		end = i;
-		while (end > start && (src[end - 1] == ' ' || src[end - 1] == '\t')) {
-			end--;
-		}
-		if (end > start) {
-			name = src[start..end];
-			if (len(out) > 0) {
-				if (!str_append(&out, ", ") || !str_append(&out, name)) {
-					return false;
-				}
-			} else if (!str_append(&out, name)) {
+	if (attn_has_comma(src)) {
+		while (i < len(src)) {
+			size_t start = i;
+			size_t end = 0;
+			while (i < len(src) && src[i] != ',') {
+				i++;
+			}
+			end = i;
+			if (!attn_append_name(&out, src[start..end])) {
 				return false;
 			}
+			if (i < len(src) && src[i] == ',') {
+				i++;
+			}
 		}
-		if (i < len(src) && src[i] == ',') {
-			i++;
+	} else {
+		while (i < len(src)) {
+			size_t start = 0;
+			size_t end = 0;
+			while (i < len(src) && attn_is_space(src[i])) {
+				i++;
+			}
+			start = i;
+			while (i < len(src) && !attn_is_space(src[i])) {
+				i++;
+			}
+			end = i;
+			if (end > start && !attn_append_name(&out, src[start..end])) {
+				return false;
+			}
 		}
 	}
 	return field_set(dst, out);

@@ -7,7 +7,8 @@ Each task has a status, a title, who it’s for (Attn), and optional context
 tags (`#home`, `#work`). New tasks land in `A:Inbox` (capture). Then triage
 with `s`: `B:Now` (this week — keep it small), `C:Soon`, `D:Later`,
 `E:Waiting` (ball in their court — Attn says who), `G:Someday`. Attn is
-comma-separated short names (`Charles`, `Brian, Jessica`). Type `#tags` in
+short names (`Charles`, `Brian, Jessica` or `Brian Jessica` — spaces split
+when there is no comma). Type `#tags` in
 the title when editing or adding — they’re stored separately and shown dim
 after the title (no extra column). Completed items stay out of the way until
 you ask for them. Find and focus keep a long list usable; `f` focuses by Attn
@@ -73,7 +74,7 @@ flash). If `B:Now` is over 7 it shows red `B:n:demote?`.
 | `X` | Toggle showing completed tasks |
 | `o` | Sort (status → Attn → title) |
 | `t` / Enter | Edit title (`#tags` in the line are parsed; Tab completes `#…`) |
-| `a` | Edit Attn (comma-separated short names; Tab completes) |
+| `a` | Edit Attn (names; comma or space separated; Tab completes) |
 | `n` | New task (Attn prefilled from current row, then title) |
 | `/` | Find across fields including tags (press again to clear) |
 | `f` | Focus by Attn or `#tag` (press again to clear; Tab completes both) |
