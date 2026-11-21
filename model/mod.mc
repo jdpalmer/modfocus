@@ -1,6 +1,7 @@
 // model — task records, filter/sort (idiomatic %C: char[..], receivers).
 import "str";
 import "crash";
+import "os";
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -150,7 +151,7 @@ Task* (TaskStore* store).get(int index) {
 }
 
 [[nodiscard]] bool (TaskStore* store).add(const Task* src) {
-	char idbuf[32] = { 0 };
+	char idbuf[40] = { 0 };
 	if (src == NULL || store.count >= StoreMaxTasks) {
 		return false;
 	}
@@ -160,8 +161,12 @@ Task* (TaskStore* store).get(int index) {
 		return false;
 	}
 	if (len(t.id) == 0) {
-		snprintf(idbuf, sizeof(idbuf), "t%d", store.next_id);
+		/* Time + counter + mono bits — avoids multi-writer tN collisions. */
+		int64_t now = time(0);
+		int64_t mono = os_mono_ns();
+		unsigned seq = store.next_id & 0xffff;
 		store.next_id++;
+		snprintf(idbuf, sizeof(idbuf), "t%08x%04x%04x", (unsigned)now, seq, (unsigned)(mono & 0xffff));
 		if (!field_set_cstr(&t.id, idbuf)) {
 			t.clear();
 			return false;
