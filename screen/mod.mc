@@ -35,8 +35,7 @@ static TextStyle style_resolve(TextStyle style) {
 	TextStyle def = style_default();
 	TermColor fg = text_style_fg(style);
 	TermColor bg = text_style_bg(style);
-	uint16_t flags = (uint16_t)(style.bits & ((uint16_t)TextStyleBold |
-		(uint16_t)TextStyleUnderline | (uint16_t)TextStyleReverse));
+	uint16_t flags = (uint16_t)(style.bits & ((uint16_t)TextStyleBold | (uint16_t)TextStyleUnderline | (uint16_t)TextStyleReverse));
 	if (fg == TermColorDefault) {
 		fg = text_style_fg(def);
 	}
@@ -62,34 +61,38 @@ TextStyle screen_style_status(char letter) {
 	/* A:Inbox … G:Someday; Now stays hot; Complete muted vs Someday. */
 	TermColor fg = TermColorBase0;
 	if (letter == 'A') {
-		fg = TermColorBlue; /* Inbox — capture, not WIP */
+		fg = TermColorBlue;
+		/* Inbox — capture, not WIP */
 	} else if (letter == 'B') {
-		fg = TermColorRed; /* Now */
+		fg = TermColorRed;
+		/* Now */
 	} else if (letter == 'C') {
-		fg = TermColorYellow; /* Soon */
+		fg = TermColorYellow;
+		/* Soon */
 	} else if (letter == 'D') {
-		fg = TermColorGreen; /* Later */
+		fg = TermColorGreen;
+		/* Later */
 	} else if (letter == 'E') {
-		fg = TermColorMagenta; /* Waiting */
+		fg = TermColorMagenta;
+		/* Waiting */
 	} else if (letter == 'F') {
-		fg = TermColorBase01; /* Complete — quiet */
+		fg = TermColorBase01;
+		/* Complete — quiet */
 	} else if (letter == 'G') {
-		fg = TermColorCyan; /* Someday */
+		fg = TermColorCyan;
+		/* Someday */
 	}
 	return text_style_make(fg, TermColorBase03, (uint16_t)TextStyleBold);
 }
 
-static void screen_free(Screen *s) {
-	free(ptr(s.cells));
-	free(ptr(s.row_dirty));
-	s.cells = ranged((DispCell *)0, 0);
-	s.row_dirty = ranged((bool *)0, 0);
+static void screen_free(Screen* s) {
+	release(&s.cells);
+	release(&s.row_dirty);
 	s.rows = 0;
 	s.cols = 0;
 }
 
-static bool screen_resize(Screen *s, int rows, int cols) {
-	int i = 0;
+static bool screen_resize(Screen* s, int rows, int cols) {
 	TextStyle def = style_default();
 	if (rows < 1) {
 		rows = 1;
@@ -101,28 +104,30 @@ static bool screen_resize(Screen *s, int rows, int cols) {
 		return true;
 	}
 	int n = rows * cols;
-	DispCell *p = calloc(n, sizeof(DispCell));
-	bool *dirty = calloc(rows, sizeof(bool));
-	if (p == NULL || dirty == NULL) {
-		free(p);
-		free(dirty);
+	DispCell[..] pv = alloc(DispCell, (size_t)n);
+	bool[..] dirty = alloc(bool, (size_t)rows);
+	if (ptr(pv) == NULL || ptr(dirty) == NULL) {
+		release(&pv);
+		release(&dirty);
 		return false;
 	}
-	DispCell[..] pv = ranged(p, n);
-	for (; i < n; i++) {
-		pv[i].ch = ' ';
-		pv[i].style = def;
+	for (auto* cell: pv) {
+		cell.ch = ' ';
+		cell.style = def;
 	}
-	free(ptr(s.cells));
-	free(ptr(s.row_dirty));
+	for (auto* d: dirty) {
+		*d = false;
+	}
+	release(&s.cells);
+	release(&s.row_dirty);
 	s.cells = pv;
-	s.row_dirty = ranged(dirty, rows);
+	s.row_dirty = dirty;
 	s.rows = rows;
 	s.cols = cols;
 	return true;
 }
 
-static DispCell *cell_at(Screen *s, int row, int col) {
+static DispCell* cell_at(Screen* s, int row, int col) {
 	if (row < 0 || col < 0 || row >= s.rows || col >= s.cols) {
 		return NULL;
 	}
@@ -130,7 +135,7 @@ static DispCell *cell_at(Screen *s, int row, int col) {
 }
 
 void screen_put_rune(int row, int col, uint32_t ch, TextStyle style) {
-	DispCell *c = cell_at(&g_screen, row, col);
+	DispCell* c = cell_at(&g_screen, row, col);
 	if (c == NULL) {
 		return;
 	}
@@ -145,14 +150,12 @@ void screen_put_rune(int row, int col, uint32_t ch, TextStyle style) {
 }
 
 void screen_put_str(int row, int col, const char[..] text, TextStyle style) {
-	int i = 0;
 	int c = col;
 	if (ptr(text) == NULL) {
 		return;
 	}
-	for (; i < (int)len(text) && c < g_screen.cols; i++) {
-		char ch = text[i];
-		if (ch == 0) {
+	for (auto ch: text) {
+		if (ch == 0 || c >= g_screen.cols) {
 			break;
 		}
 		screen_put_rune(row, c, ch, style);
@@ -160,15 +163,17 @@ void screen_put_str(int row, int col, const char[..] text, TextStyle style) {
 	}
 }
 
-void screen_put_cstr(int row, int col, const char *text, TextStyle style) {
+void screen_put_cstr(int row, int col, const char* text, TextStyle style) {
 	int c = col;
-	size_t i = 0;
 	if (text == NULL) {
 		return;
 	}
 	const char[..] view = ranged(text, strlen(text));
-	for (; i < len(view) && c < g_screen.cols; i++) {
-		screen_put_rune(row, c, view[i], style);
+	for (auto ch: view) {
+		if (c >= g_screen.cols) {
+			break;
+		}
+		screen_put_rune(row, c, ch, style);
 		c++;
 	}
 }
@@ -190,26 +195,10 @@ void screen_clear() {
 
 /* Solarized / ANSI RGB — match jem truecolor table. */
 static const char[..] color_rgb_base[] = {
-	"7;54;66",
-	"220;50;47",
-	"133;153;0",
-	"181;137;0",
-	"38;139;210",
-	"211;54;130",
-	"42;161;152",
-	"238;232;213",
-};
+	"7;54;66", "220;50;47", "133;153;0", "181;137;0", "38;139;210", "211;54;130", "42;161;152", "238;232;213", };
 
 static const char[..] color_rgb_sol[] = {
-	"0;43;54",
-	"7;54;66",
-	"88;110;117",
-	"101;123;131",
-	"131;148;150",
-	"147;161;161",
-	"238;232;213",
-	"253;246;227",
-};
+	"0;43;54", "7;54;66", "88;110;117", "101;123;131", "131;148;150", "147;161;161", "238;232;213", "253;246;227", };
 
 static const char[..] color_rgb(TermColor c) {
 	int i = c;
@@ -222,7 +211,7 @@ static const char[..] color_rgb(TermColor c) {
 	return "";
 }
 
-static int append_color_sgr(char *buf, size_t cap, int n, TermColor c, int base_sgr) {
+static int append_color_sgr(char* buf, size_t cap, int n, TermColor c, int base_sgr) {
 	int i = c;
 	if (c == TermColorDefault || n < 0) {
 		return n;
@@ -249,7 +238,7 @@ static int append_color_sgr(char *buf, size_t cap, int n, TermColor c, int base_
 }
 
 static void emit_sgr(TextStyle style) {
-	char seq[96] = {0};
+	char seq[96] = { 0 };
 	TextStyle resolved = style_resolve(style);
 	TermColor fg = text_style_fg(resolved);
 	TermColor bg = text_style_bg(resolved);
@@ -258,10 +247,7 @@ static void emit_sgr(TextStyle style) {
 		fg = bg;
 		bg = tmp;
 	}
-	int n = snprintf(seq, sizeof(seq), "\x1b[0%s%s%s",
-		(resolved.bits & (uint16_t)TextStyleBold) ? ";1" : "",
-		(resolved.bits & (uint16_t)TextStyleUnderline) ? ";4" : "",
-		(resolved.bits & (uint16_t)TextStyleReverse) ? ";7" : "");
+	int n = snprintf(seq, sizeof(seq), "\x1b[0%s%s%s", (resolved.bits & (uint16_t)TextStyleBold) ? ";1": "", (resolved.bits & (uint16_t)TextStyleUnderline) ? ";4": "", (resolved.bits & (uint16_t)TextStyleReverse) ? ";7": "");
 	if (n < 0 || (size_t)n >= sizeof(seq)) {
 		return;
 	}
@@ -285,13 +271,13 @@ static void emit_sgr_cached(TextStyle style) {
 }
 
 static void screen_write_span(int row, int from, int to) {
-	char out[4096] = {0};
+	char out[4096] = { 0 };
 	int out_len = 0;
 	int i = from;
 	for (; i < to; i++) {
-		DispCell *c = cell_at(&g_screen, row, i);
+		DispCell* c = cell_at(&g_screen, row, i);
 		uint32_t ch = 0;
-		char tmp[4] = {0};
+		char tmp[4] = { 0 };
 		int sz = 0;
 		if (c == NULL || c.ch == 0) {
 			continue;
@@ -306,17 +292,17 @@ static void screen_write_span(int row, int from, int to) {
 			sz = 2;
 		} else if (ch < 0x10000) {
 			tmp[0] = (char)(0xE0 | (ch >> 12));
-			tmp[1] = (char)(0x80 | ((ch >> 6) & 0x3F));
+			tmp[1] = (char)(0x80 | ((ch >> 6)& 0x3F));
 			tmp[2] = (char)(0x80 | (ch & 0x3F));
 			sz = 3;
 		} else {
 			tmp[0] = (char)(0xF0 | (ch >> 18));
-			tmp[1] = (char)(0x80 | ((ch >> 12) & 0x3F));
-			tmp[2] = (char)(0x80 | ((ch >> 6) & 0x3F));
+			tmp[1] = (char)(0x80 | ((ch >> 12)& 0x3F));
+			tmp[2] = (char)(0x80 | ((ch >> 6)& 0x3F));
 			tmp[3] = (char)(0x80 | (ch & 0x3F));
 			sz = 4;
 		}
-		if (out_len + sz > (int)sizeof(out)) {
+		if (out_len + sz > (int) sizeof(out)) {
 			term_write(out, out_len);
 			out_len = 0;
 		}
@@ -329,8 +315,8 @@ static void screen_write_span(int row, int from, int to) {
 }
 
 static void copy_front_cell(int row, int col) {
-	DispCell *a = cell_at(&g_screen, row, col);
-	DispCell *b = cell_at(&g_prev, row, col);
+	DispCell* a = cell_at(&g_screen, row, col);
+	DispCell* b = cell_at(&g_prev, row, col);
 	if (a == NULL || b == NULL) {
 		return;
 	}
@@ -344,8 +330,8 @@ static void row_emit_diffs(int row, int from, int to) {
 		to = cols;
 	}
 	while (k < to) {
-		DispCell *a = {0};
-		DispCell *b = {0};
+		DispCell* a = { 0 };
+		DispCell* b = { 0 };
 		while (k < to) {
 			a = cell_at(&g_screen, row, k);
 			b = cell_at(&g_prev, row, k);
@@ -362,7 +348,7 @@ static void row_emit_diffs(int row, int from, int to) {
 		}
 		term_move(row, k);
 		while (k < to) {
-			TextStyle style = {0};
+			TextStyle style = { 0 };
 			int run = 0;
 			a = cell_at(&g_screen, row, k);
 			b = cell_at(&g_prev, row, k);
@@ -376,8 +362,8 @@ static void row_emit_diffs(int row, int from, int to) {
 			emit_sgr_cached(style);
 			run = k;
 			while (run < to) {
-				DispCell *ra = cell_at(&g_screen, row, run);
-				DispCell *rb = cell_at(&g_prev, row, run);
+				DispCell* ra = cell_at(&g_screen, row, run);
+				DispCell* rb = cell_at(&g_prev, row, run);
 				if (ra == NULL || rb == NULL) {
 					break;
 				}
@@ -406,8 +392,8 @@ static void row_sync(int row) {
 		return;
 	}
 	while (first < cols) {
-		DispCell *a = cell_at(&g_screen, row, first);
-		DispCell *b = cell_at(&g_prev, row, first);
+		DispCell* a = cell_at(&g_screen, row, first);
+		DispCell* b = cell_at(&g_prev, row, first);
 		if (a == NULL || b == NULL || a.ch != b.ch || !text_style_eq(a.style, b.style)) {
 			break;
 		}
@@ -418,8 +404,8 @@ static void row_sync(int row) {
 	}
 	int last = cols - 1;
 	while (last > first) {
-		DispCell *a = cell_at(&g_screen, row, last);
-		DispCell *b = cell_at(&g_prev, row, last);
+		DispCell* a = cell_at(&g_screen, row, last);
+		DispCell* b = cell_at(&g_prev, row, last);
 		if (a == NULL || b == NULL || a.ch != b.ch || !text_style_eq(a.style, b.style)) {
 			break;
 		}
@@ -427,7 +413,7 @@ static void row_sync(int row) {
 	}
 	int lastsp = cols;
 	while (lastsp > first) {
-		DispCell *a = cell_at(&g_screen, row, lastsp - 1);
+		DispCell* a = cell_at(&g_screen, row, lastsp - 1);
 		if (a == NULL || a.ch != (uint32_t)' ' || !text_style_eq(a.style, normal)) {
 			break;
 		}
@@ -440,7 +426,7 @@ static void row_sync(int row) {
 		emit_sgr_cached(normal);
 		term_erase_eol();
 		for (; i < cols; i++) {
-			DispCell *b = cell_at(&g_prev, row, i);
+			DispCell* b = cell_at(&g_prev, row, i);
 			if (b != NULL) {
 				b.ch = ' ';
 				b.style = normal;

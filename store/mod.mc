@@ -16,13 +16,14 @@ import "str";
 
 enum {
 	BackupKeep = 5,
-	BackupMinAgeSec = 3600, /* at most one new generation per hour */
+	BackupMinAgeSec = 3600,
+	/* at most one new generation per hour */
 	BackupPathCap = 1100
 };
 
 /* path.bak.N into dst; false if it would not fit. */
 static bool backup_slot_path(char[..] dst, const char[..] path, int n) {
-	char suf[16] = {0};
+	char suf[16] = { 0 };
 	if (ptr(dst) == NULL || cap(dst) == 0 || n < 1) {
 		return false;
 	}
@@ -37,7 +38,7 @@ static bool backup_slot_path(char[..] dst, const char[..] path, int n) {
 
 /* True when we should mint a new bak.1 from the live file. */
 static bool backup_due(const char[..] path) {
-	char bak1[BackupPathCap] = {0};
+	char bak1[BackupPathCap] = { 0 };
 	if (!backup_slot_path(ranged(bak1, sizeof(bak1)), path, 1)) {
 		return false;
 	}
@@ -58,8 +59,8 @@ static bool backup_due(const char[..] path) {
  * Best-effort: failure must not block the subsequent save.
  */
 static void store_rotate_backups(const char[..] path) {
-	char older[BackupPathCap] = {0};
-	char newer[BackupPathCap] = {0};
+	char older[BackupPathCap] = { 0 };
+	char newer[BackupPathCap] = { 0 };
 	auto (live, lok) = fs_stat(path);
 	if (!lok || live.kind != KindFile) {
 		return;
@@ -68,8 +69,7 @@ static void store_rotate_backups(const char[..] path) {
 		return;
 	}
 	for (int i = BackupKeep; i >= 2; i--) {
-		if (!backup_slot_path(ranged(older, sizeof(older)), path, i) ||
-			!backup_slot_path(ranged(newer, sizeof(newer)), path, i - 1)) {
+		if (!backup_slot_path(ranged(older, sizeof(older)), path, i) || !backup_slot_path(ranged(newer, sizeof(newer)), path, i - 1)) {
 			return;
 		}
 		(void)fs_remove(ranged(older, strlen(older)));
@@ -85,52 +85,51 @@ static void store_rotate_backups(const char[..] path) {
 	(void)fs_rename(path, ranged(newer, strlen(newer)));
 }
 
-static const char[..] obj_str(const JsonValue *obj, const char *key) {
+static const char[..] obj_str(const JsonValue* obj, const char* key) {
 	if (obj == NULL || key == NULL) {
 		return str_from_cstr("");
 	}
-	const JsonValue *v = json_object_get(obj, key);
-	const char *s = json_string_value(v);
-	return str_from_cstr(s != NULL ? s : "");
+	const JsonValue* v = json_object_get(obj, key);
+	const char* s = json_string_value(v);
+	return str_from_cstr(s != NULL ? s: "");
 }
 
-bool store_default_path(char[..] dst) {
+[[nodiscard]](char[..], bool) store_default_path([[region]] Pool * p) {
 	auto (env_ok, env) = os_env("MFDB");
-	if (ptr(dst) == NULL || cap(dst) == 0) {
-		return false;
+	if (p == NULL) {
+		return (str_empty(), false);
 	}
 	if (env_ok && len(env) > 0) {
-		(void)cstr_write(dst, env);
-		return true;
+		char[..] out = { 0 };
+		if (!p.append(&out, env)) {
+			return (str_empty(), false);
+		}
+		return (out, true);
 	}
-	pool p {
-		auto (cfg, cok) = os_user_config_dir(&p);
-		if (!cok) {
-			return false;
-		}
-		auto (dir, dok) = path_join(&p, cfg, "modfocus");
-		if (!dok) {
-			return false;
-		}
-		auto (file, fok) = path_join(&p, dir, "tasks.json");
-		if (!fok) {
-			return false;
-		}
-		(void)cstr_write(dst, file);
-		return true;
+	auto (cfg, cok) = os_user_config_dir(p);
+	if (!cok) {
+		return (str_empty(), false);
 	}
+	auto (dir, dok) = path_join(p, cfg, "modfocus");
+	if (!dok) {
+		return (str_empty(), false);
+	}
+	return path_join(p, dir, "tasks.json");
 }
 
-bool store_ensure_parent_dir(const char[..] db_path) {
+[[nodiscard]] bool store_ensure_parent_dir(const char[..] db_path) {
 	const char[..] parent = path_dir(db_path);
 	if (len(parent) == 0) {
 		return true;
 	}
-	(void)fs_mkdir(parent);
-	return true;
+	auto (info, ok) = fs_stat(parent);
+	if (ok && info.kind == KindDir) {
+		return true;
+	}
+	return fs_mkdir(parent);
 }
 
-static (char[..], bool) read_file_all(const char[..] path) {
+static(char[..], bool) read_file_all(const char[..] path) {
 	auto (r, ok) = reader_open(path, OpenRead, 0);
 	char[..] data = str_empty();
 	if (!ok) {
@@ -138,7 +137,7 @@ static (char[..], bool) read_file_all(const char[..] path) {
 	}
 	defer r.close();
 	for (;;) {
-		char chunk[8192] = {0};
+		char chunk[8192] = { 0 };
 		auto (n, rok) = r.read(ranged(chunk, sizeof(chunk)));
 		if (!rok) {
 			str_free(&data);
@@ -155,15 +154,15 @@ static (char[..], bool) read_file_all(const char[..] path) {
 	return (data, true);
 }
 
-bool (TaskStore *store).load(const char[..] path) {
-	JsonError err = {0};
+[[nodiscard]] bool (TaskStore* store).load(const char[..] path) {
+	JsonError err = { 0 };
 	store.init();
 	auto (text, tok) = read_file_all(path);
 	if (!tok) {
 		return false;
 	}
 	defer str_free(&text);
-	JsonValue *root = json_parse_n(ptr(text), len(text), &err);
+	JsonValue* root = json_parse_n(ptr(text), len(text), &err);
 	if (root == NULL) {
 		return false;
 	}
@@ -171,13 +170,13 @@ bool (TaskStore *store).load(const char[..] path) {
 	if (root.type != JSON_OBJECT) {
 		return false;
 	}
-	const JsonValue *tasks = json_object_get(root, "tasks");
+	const JsonValue* tasks = json_object_get(root, "tasks");
 	if (tasks == NULL || tasks.type != JSON_ARRAY) {
 		return true;
 	}
 	for (size_t i = 0; i < json_array_size(tasks); i++) {
-		const JsonValue *item = json_array_get(tasks, i);
-		Task t = {0};
+		const JsonValue* item = json_array_get(tasks, i);
+		Task t = { 0 };
 		if (item == NULL || item.type != JSON_OBJECT) {
 			continue;
 		}
@@ -195,19 +194,19 @@ bool (TaskStore *store).load(const char[..] path) {
 			t.clear();
 			break;
 		}
-		t.clear(); /* add deep-copied; drop temps */
+		t.clear();
+		/* add deep-copied; drop temps */
 	}
 	store.dirty = false;
 	store.sort();
 	return true;
 }
 
-bool (TaskStore *store).save(const char[..] path) {
-	char tmp[1024] = {0};
+[[nodiscard]] bool (TaskStore* store).save(const char[..] path) {
 	if (!store_ensure_parent_dir(path)) {
 		return false;
 	}
-	JsonValue *root = json_new_object();
+	JsonValue* root = json_new_object();
 	if (root == NULL) {
 		return false;
 	}
@@ -215,7 +214,7 @@ bool (TaskStore *store).save(const char[..] path) {
 	if (!json_object_set(root, "version", json_new_number(1))) {
 		return false;
 	}
-	JsonValue *arr = json_new_array();
+	JsonValue* arr = json_new_array();
 	if (arr == NULL) {
 		return false;
 	}
@@ -224,17 +223,12 @@ bool (TaskStore *store).save(const char[..] path) {
 	}
 	arr = json_object_get_mutable(root, "tasks");
 	for (int i = 0; i < store.count; i++) {
-		Task *t = &store.tasks[i];
-		JsonValue *obj = json_new_object();
+		Task* t = &store.tasks[i];
+		JsonValue* obj = json_new_object();
 		if (obj == NULL) {
 			return false;
 		}
-		if (!json_object_set(obj, "id", json_new_string_n(ptr(t.id), len(t.id))) ||
-			!json_object_set(obj, "status", json_new_string_n(ptr(t.status), len(t.status))) ||
-			!json_object_set(obj, "title", json_new_string_n(ptr(t.title), len(t.title))) ||
-			!json_object_set(obj, "cc", json_new_string_n(ptr(t.cc), len(t.cc))) ||
-			!json_object_set(obj, "tags", json_new_string_n(ptr(t.tags), len(t.tags))) ||
-			!json_object_set(obj, "updated", json_new_string_n(ptr(t.updated), len(t.updated)))) {
+		if (!json_object_set(obj, "id", json_new_string_n(ptr(t.id), len(t.id))) || !json_object_set(obj, "status", json_new_string_n(ptr(t.status), len(t.status))) || !json_object_set(obj, "title", json_new_string_n(ptr(t.title), len(t.title))) || !json_object_set(obj, "cc", json_new_string_n(ptr(t.cc), len(t.cc))) || !json_object_set(obj, "tags", json_new_string_n(ptr(t.tags), len(t.tags))) || !json_object_set(obj, "updated", json_new_string_n(ptr(t.updated), len(t.updated)))) {
 			json_free(obj);
 			return false;
 		}
@@ -242,19 +236,18 @@ bool (TaskStore *store).save(const char[..] path) {
 			return false;
 		}
 	}
-	char *text = json_stringify(root);
+	char* text = json_stringify(root);
 	if (text == NULL) {
 		return false;
 	}
 	defer free(text);
 	pool p {
-		char[..] tmp_path = {0};
+		char[..] tmp_path = { 0 };
 		if (!p.append(&tmp_path, path) || !p.append(&tmp_path, ".tmp")) {
 			return false;
 		}
-		(void)cstr_write(ranged(tmp, sizeof(tmp)), tmp_path);
 		{
-			auto (w, wok) = writer_open(ranged(tmp, strlen(tmp)), OpenWrite | OpenCreate | OpenTrunc, 0);
+			auto (w, wok) = writer_open(tmp_path, OpenWrite | OpenCreate | OpenTrunc, 0);
 			if (!wok) {
 				return false;
 			}
@@ -269,9 +262,9 @@ bool (TaskStore *store).save(const char[..] path) {
 			}
 		}
 		store_rotate_backups(path);
-		if (!fs_rename(ranged(tmp, strlen(tmp)), path)) {
+		if (!fs_rename(tmp_path, path)) {
 			/* If we moved the live file to bak.1, try to put it back. */
-			char bak1[BackupPathCap] = {0};
+			char bak1[BackupPathCap] = { 0 };
 			if (backup_slot_path(ranged(bak1, sizeof(bak1)), path, 1)) {
 				auto (b, bok) = fs_stat(ranged(bak1, strlen(bak1)));
 				auto (cur, cok) = fs_stat(path);
@@ -280,7 +273,7 @@ bool (TaskStore *store).save(const char[..] path) {
 					(void)fs_rename(ranged(bak1, strlen(bak1)), path);
 				}
 			}
-			(void)fs_remove(ranged(tmp, strlen(tmp)));
+			(void)fs_remove(tmp_path);
 			return false;
 		}
 	}
@@ -288,21 +281,7 @@ bool (TaskStore *store).save(const char[..] path) {
 	return true;
 }
 
-bool store_load(TaskStore *store, const char[..] path) {
-	if (store == NULL) {
-		return false;
-	}
-	return store.load(path);
-}
-
-bool store_save(TaskStore *store, const char[..] path) {
-	if (store == NULL) {
-		return false;
-	}
-	return store.save(path);
-}
-
-bool store_import_file(TaskStore *store, const char[..] src, const char[..] dst) {
+[[nodiscard]] bool store_import_file(TaskStore* store, const char[..] src, const char[..] dst) {
 	static TaskStore seed;
 	if (store == NULL) {
 		return false;
@@ -319,7 +298,7 @@ bool store_import_file(TaskStore *store, const char[..] src, const char[..] dst)
 	return store.save(dst);
 }
 
-static int store_find_id(const TaskStore *store, const char[..] id) {
+static int store_find_id(const TaskStore* store, const char[..] id) {
 	if (store == NULL || len(id) == 0) {
 		return -1;
 	}
@@ -344,13 +323,13 @@ static int updated_cmp(const char[..] a, const char[..] b) {
 	return str_cmp(a, b);
 }
 
-bool (TaskStore *local).merge(const TaskStore *incoming) {
+[[nodiscard]] bool (TaskStore* local).merge(const TaskStore* incoming) {
 	bool changed = false;
 	if (incoming == NULL) {
 		return false;
 	}
 	for (int i = 0; i < incoming.count; i++) {
-		const Task *src = &incoming.tasks[i];
+		const Task* src = &incoming.tasks[i];
 		int at = store_find_id(local, src.id);
 		if (at < 0) {
 			if (!local.add(src)) {
@@ -367,11 +346,4 @@ bool (TaskStore *local).merge(const TaskStore *incoming) {
 		}
 	}
 	return changed;
-}
-
-bool store_merge(TaskStore *local, const TaskStore *incoming) {
-	if (local == NULL) {
-		return false;
-	}
-	return local.merge(incoming);
 }

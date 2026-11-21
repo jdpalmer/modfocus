@@ -2,6 +2,5 @@
 import "app";
 
 int main(const char[..][..] args) {
-	app_run(args);
-	return 0;
+	return app_run(args);
 }

@@ -24,22 +24,25 @@ const char[..] app_version =
 ;
 
 struct UiState {
-	TaskStore *store;
-	ViewFilter *filter;
+	TaskStore* store;
+	ViewFilter* filter;
 	int[..] visible;
 	int visible_count;
-	int selected; /* index into visible[] */
+	int selected;
+	/* index into visible[] */
 	int scroll;
 	char mode_line[160];
 	char prompt[80];
 	char input[UiInputCap];
 	int input_len;
-	int input_cursor; /* caret within input[0..input_len] */
+	int input_cursor;
+	/* caret within input[0..input_len] */
 	bool editing;
-	bool edit_cancelled; /* true when Esc / C-g finished the prompt */
+	bool edit_cancelled;
+	/* true when Esc / C-g finished the prompt */
 };
 
-void ui_init(UiState *ui, TaskStore *store, ViewFilter *filter, int[..] visible) {
+void ui_init(UiState* ui, TaskStore* store, ViewFilter* filter, int[..] visible) {
 	if (ui == NULL) {
 		return;
 	}
@@ -52,7 +55,7 @@ void ui_init(UiState *ui, TaskStore *store, ViewFilter *filter, int[..] visible)
 	snprintf(ui.mode_line, sizeof(ui.mode_line), "modfocus");
 }
 
-void ui_set_status(UiState *ui, const char[..] msg) {
+void ui_set_status(UiState* ui, const char[..] msg) {
 	if (ui == NULL) {
 		return;
 	}
@@ -84,15 +87,18 @@ static void put_mnemonic(int row, int col, int width, const char[..] text, char 
 	if (want >= 'A' && want <= 'Z') {
 		want = (char)(want - 'A' + 'a');
 	}
-	for (int i = 0; i < (int)len(text); i++) {
-		char ch = text[i];
-		char low = ch;
-		if (low >= 'A' && low <= 'Z') {
-			low = (char)(low - 'A' + 'a');
-		}
-		if (low == want) {
-			marked = i;
-			break;
+	{
+		int i = 0;
+		for (auto ch: text) {
+			char low = ch;
+			if (low >= 'A' && low <= 'Z') {
+				low = (char)(low - 'A' + 'a');
+			}
+			if (low == want) {
+				marked = i;
+				break;
+			}
+			i++;
 		}
 	}
 	for (int i = 0; i < width; i++) {
@@ -124,7 +130,7 @@ int ui_page_rows() {
 	return table_height(screen_rows());
 }
 
-void ui_clamp(UiState *ui) {
+void ui_clamp(UiState* ui) {
 	if (ui == NULL) {
 		return;
 	}
@@ -151,7 +157,7 @@ void ui_clamp(UiState *ui) {
 	}
 }
 
-Task *ui_selected_task(UiState *ui) {
+Task* ui_selected_task(UiState* ui) {
 	if (ui == NULL || ui.store == NULL || ptr(ui.visible) == NULL) {
 		return NULL;
 	}
@@ -162,7 +168,7 @@ Task *ui_selected_task(UiState *ui) {
 	return ui.store.get(idx);
 }
 
-int ui_selected_store_index(UiState *ui) {
+int ui_selected_store_index(UiState* ui) {
 	if (ui == NULL || ptr(ui.visible) == NULL) {
 		return -1;
 	}
@@ -172,7 +178,7 @@ int ui_selected_store_index(UiState *ui) {
 	return ui.visible[ui.selected];
 }
 
-static void col_widths(int cols, int *w_status, int *w_task, int *w_cc) {
+static void col_widths(int cols, int* w_status, int* w_task, int* w_cc) {
 	/* Status vocab is short (A:Inbox … G:Someday); keep title room. */
 	int status = 10;
 	int cc = 16;
@@ -206,7 +212,59 @@ static void paint_col_header(int cols) {
 	put_mnemonic(UiColHeaderRow, c, w_task, "Task", 't', st);
 }
 
-static void paint_table(UiState *ui, int cols) {
+/* Paint one task through const Task* (status / attn / title+#tags). */
+static void paint_task_row(int screen_row, int c, int w_status, int w_cc, int w_task, const Task* t, TextStyle st, bool selected, bool done) {
+	char letter = ' ';
+	if (t == NULL) {
+		return;
+	}
+	if (len(t.status) > 0) {
+		letter = t.status[0];
+	}
+	{
+		TextStyle sst = st;
+		if (!selected && !done) {
+			sst = screen_style_status(letter);
+		}
+		put_clipped(screen_row, c, w_status, t.status, sst);
+	}
+	c += w_status + 1;
+	{
+		const char[..] attn = len(t.cc) == 0 ? str_from_cstr("-"): t.cc;
+		TextStyle attn_st = st;
+		if (len(t.cc) == 0) {
+			TermColor bg = text_style_bg(st);
+			if (str_eq_cstr(t.status, "E:Waiting")) {
+				attn_st = text_style_make(TermColorRed, bg, (uint16_t)TextStyleBold);
+			} else {
+				attn_st = text_style_make(TermColorBase01, bg, 0);
+			}
+		}
+		put_clipped(screen_row, c, w_cc, attn, attn_st);
+	}
+	c += w_cc + 1;
+	{
+		TermColor bg = text_style_bg(st);
+		TextStyle tag_st = text_style_make(TermColorBase01, bg, 0);
+		int ti = 0;
+		int title_n = (int)len(t.title);
+		int tags_n = (int)len(t.tags);
+		int gap = (title_n > 0 && tags_n > 0) ? 2: 0;
+		for (; ti < w_task; ti++) {
+			char ch = ' ';
+			TextStyle use = st;
+			if (ti < title_n) {
+				ch = t.title[ti];
+			} else if (tags_n > 0 && ti >= title_n + gap && ti - title_n - gap < tags_n) {
+				ch = t.tags[ti - title_n - gap];
+				use = tag_st;
+			}
+			screen_put_rune(screen_row, c + ti, ch, use);
+		}
+	}
+}
+
+static void paint_table(UiState* ui, int cols) {
 	int top = table_top();
 	int th = table_height(screen_rows());
 	int row = 0;
@@ -219,9 +277,7 @@ static void paint_table(UiState *ui, int cols) {
 		int vi = ui.scroll + row;
 		int screen_row = top + row;
 		TextStyle st = def;
-		Task *t = NULL;
-		int c = 0;
-		char letter = ' ';
+		Task* t = NULL;
 		screen_fill_row(screen_row, def);
 		if (vi < 0 || vi >= ui.visible_count) {
 			continue;
@@ -231,7 +287,8 @@ static void paint_table(UiState *ui, int cols) {
 			continue;
 		}
 		bool done = str_eq_cstr(t.status, "F:Complete");
-		if (vi == ui.selected) {
+		bool selected = vi == ui.selected;
+		if (selected) {
 			st = screen_style_selected();
 			screen_fill_row(screen_row, st);
 		} else if (done) {
@@ -239,64 +296,17 @@ static void paint_table(UiState *ui, int cols) {
 			st = text_style_make(TermColorBase01, TermColorBase03, 0);
 			screen_fill_row(screen_row, st);
 		}
-		if (len(t.status) > 0) {
-			letter = t.status[0];
-		}
-		{
-			TextStyle sst = st;
-			if (vi != ui.selected && !done) {
-				sst = screen_style_status(letter);
-			}
-			put_clipped(screen_row, c, w_status, t.status, sst);
-		}
-		c += w_status + 1;
-		{
-			/* Empty Attn: dim "-"; on Waiting, red so the hole is obvious. */
-			const char[..] attn = len(t.cc) == 0 ? str_from_cstr("-") : t.cc;
-			TextStyle attn_st = st;
-			if (len(t.cc) == 0) {
-				TermColor bg = text_style_bg(st);
-				if (str_eq_cstr(t.status, "E:Waiting")) {
-					attn_st = text_style_make(TermColorRed, bg, (uint16_t)TextStyleBold);
-				} else {
-					attn_st = text_style_make(TermColorBase01, bg, 0);
-				}
-			}
-			put_clipped(screen_row, c, w_cc, attn, attn_st);
-		}
-		c += w_cc + 1;
-		{
-			/* Title primary; tags dim suffix in the same cell (no Tags column). */
-			TermColor bg = text_style_bg(st);
-			TextStyle tag_st = text_style_make(TermColorBase01, bg, 0);
-			int ti = 0;
-			int title_n = (int)len(t.title);
-			int tags_n = (int)len(t.tags);
-			int gap = (title_n > 0 && tags_n > 0) ? 2 : 0;
-			for (; ti < w_task; ti++) {
-				char ch = ' ';
-				TextStyle use = st;
-				if (ti < title_n) {
-					ch = t.title[ti];
-				} else if (tags_n > 0 && ti >= title_n + gap &&
-					ti - title_n - gap < tags_n) {
-					ch = t.tags[ti - title_n - gap];
-					use = tag_st;
-				}
-				screen_put_rune(screen_row, c + ti, ch, use);
-			}
-		}
+		paint_task_row(screen_row, 0, w_status, w_cc, w_task, t, st, selected, done);
 	}
 }
 
-static int count_status(const TaskStore *store, const char[..] status) {
+static int count_status(const TaskStore* store, const char[..] status) {
 	int n = 0;
-	int i = 0;
-	if (store == NULL) {
+	if (store == NULL || store.count <= 0) {
 		return 0;
 	}
-	for (; i < store.count; i++) {
-		if (str_eq(store.tasks[i].status, status)) {
+	for (auto t: store.tasks[0 ..(size_t)store.count]) {
+		if (str_eq(t.status, status)) {
 			n++;
 		}
 	}
@@ -315,30 +325,32 @@ static int footer_hints_width(bool focus_on, bool find_on, bool compact) {
 	}
 	/* focus(5) vs unfocus(7); /find vs /clear same width */
 	(void)find_on;
-	int f_len = focus_on ? 7 : 5;
+	int f_len = focus_on ? 7: 5;
 	/* new + focus|unfocus + /find + sort + kill + xdone + Xall + quit + gaps */
 	return 3 + 1 + f_len + 1 + 5 + 1 + 4 + 1 + 4 + 1 + 5 + 1 + 4 + 1 + 4;
 }
 
-static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bool find_on,
-	bool compact) {
+static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bool find_on, bool compact) {
 	if (compact) {
 		char keys[] = "n f / o k x X q";
 		const char[..] keyv = ranged(keys, sizeof(keys) - 1);
-		for (int i = 0; i < (int)len(keyv); i++) {
-			char ch = keyv[i];
+		int i = 0;
+		for (auto ch: keyv) {
 			if (ch == ' ') {
 				screen_put_rune(row, col + i, ' ', st);
 			} else {
 				put_hot_key(row, col + i, ch, st);
 			}
+			i++;
 		}
 		return;
 	}
-	const char *focus_lab = focus_on ? "unfocus" : "focus";
-	const char *find_lab = find_on ? "/clear" : "/find";
-	const char *labs[] = {"new", focus_lab, find_lab, "sort", "kill", "xdone", "Xall", "quit"};
-	char mnems[] = {'n', 'f', '/', 'o', 'k', 'x', 'X', 'q'};
+	const char* focus_lab = focus_on ? "unfocus": "focus";
+	const char* find_lab = find_on ? "/clear": "/find";
+	const char* labs[] = {
+		"new", focus_lab, find_lab, "sort", "kill", "xdone", "Xall", "quit" };
+	char mnems[] = {
+		'n', 'f', '/', 'o', 'k', 'x', 'X', 'q' };
 	int c = col;
 	for (int i = 0; i < 8; i++) {
 		int w = (int)strlen(labs[i]);
@@ -351,19 +363,17 @@ static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bo
 	}
 }
 
-enum {
-	NowSoftCap = 7
-};
+enum { NowSoftCap = 7 };
 
-static void paint_footer(UiState *ui, int cols) {
+static void paint_footer(UiState* ui, int cols) {
 	int row = screen_rows() - 1;
 	TextStyle st = screen_style_header();
 	TextStyle a_hot = text_style_make(TermColorRed, text_style_bg(st), (uint16_t)TextStyleBold);
-	char pre[64] = {0};
-	char a_bit[48] = {0};
-	char rest[192] = {0};
-	char line[512] = {0};
-	int total = ui.store != NULL ? ui.store.count : 0;
+	char pre[64] = { 0 };
+	char a_bit[48] = { 0 };
+	char rest[192] = { 0 };
+	char line[512] = { 0 };
+	int total = ui.store != NULL ? ui.store.count: 0;
 	int b_now = count_status(ui.store, "B:Now");
 	bool focus_on = ui.filter != NULL && len(ui.filter.cc) != 0;
 	bool tag_on = ui.filter != NULL && len(ui.filter.tag) != 0;
@@ -383,8 +393,7 @@ static void paint_footer(UiState *ui, int cols) {
 		while (vlen > 0 && (ver[vlen - 1] == '\n' || ver[vlen - 1] == '\r')) {
 			vlen--;
 		}
-		snprintf(pre, sizeof(pre), "ModFocus %.*s %d/%d ", (int)vlen, ptr(ver),
-			ui.visible_count, total);
+		snprintf(pre, sizeof(pre), "ModFocus %.*s %d/%d ", (int)vlen, ptr(ver), ui.visible_count, total);
 	}
 	if (a_over) {
 		snprintf(a_bit, sizeof(a_bit), "B:%d:demote?", b_now);
@@ -392,29 +401,25 @@ static void paint_footer(UiState *ui, int cols) {
 		snprintf(a_bit, sizeof(a_bit), "B:%d", b_now);
 	}
 	if (ui.filter != NULL) {
-		if (focus_on && rn < (int)sizeof(rest)) {
-			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " @%.*s",
-				(int)len(ui.filter.cc), ptr(ui.filter.cc));
+		if (focus_on && rn < (int) sizeof(rest)) {
+			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " @%.*s", (int)len(ui.filter.cc), ptr(ui.filter.cc));
 		}
-		if (tag_on && rn < (int)sizeof(rest)) {
+		if (tag_on && rn < (int) sizeof(rest)) {
 			const char[..] tg = ui.filter.tag;
 			if (len(tg) > 0 && tg[0] == '#') {
-				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " %.*s",
-					(int)len(tg), ptr(tg));
+				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " %.*s", (int)len(tg), ptr(tg));
 			} else {
-				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " #%.*s",
-					(int)len(tg), ptr(tg));
+				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " #%.*s", (int)len(tg), ptr(tg));
 			}
 		}
-		if (ui.filter.show_complete && rn < (int)sizeof(rest)) {
+		if (ui.filter.show_complete && rn < (int) sizeof(rest)) {
 			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " +C");
 		}
-		if (find_on && rn < (int)sizeof(rest)) {
-			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " /%.*s",
-				(int)len(ui.filter.text), ptr(ui.filter.text));
+		if (find_on && rn < (int) sizeof(rest)) {
+			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " /%.*s", (int)len(ui.filter.text), ptr(ui.filter.text));
 		}
 	}
-	if (strlen(ui.mode_line) != 0 && rn < (int)sizeof(rest)) {
+	if (strlen(ui.mode_line) != 0 && rn < (int) sizeof(rest)) {
 		rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " %s", ui.mode_line);
 	}
 	(void)rn;
@@ -448,7 +453,7 @@ static void paint_footer(UiState *ui, int cols) {
 			if (c + w > left_cols) {
 				w = left_cols - c;
 			}
-			put_clipped(row, c, w, ranged(a_bit, (size_t)a_w), a_over ? a_hot : st);
+			put_clipped(row, c, w, ranged(a_bit, (size_t)a_w), a_over ? a_hot: st);
 			c += w;
 		}
 		if (c < left_cols && rest_w > 0) {
@@ -472,7 +477,7 @@ static void paint_footer(UiState *ui, int cols) {
 	}
 }
 
-void ui_paint(UiState *ui) {
+void ui_paint(UiState* ui) {
 	if (ui == NULL) {
 		return;
 	}
@@ -505,7 +510,7 @@ void ui_paint(UiState *ui) {
 	}
 }
 
-void ui_begin_edit(UiState *ui, const char[..] prompt, const char[..] initial) {
+void ui_begin_edit(UiState* ui, const char[..] prompt, const char[..] initial) {
 	if (ui == NULL) {
 		return;
 	}
@@ -517,7 +522,7 @@ void ui_begin_edit(UiState *ui, const char[..] prompt, const char[..] initial) {
 	ui.input_cursor = ui.input_len;
 }
 
-void ui_end_edit(UiState *ui) {
+void ui_end_edit(UiState* ui) {
 	if (ui == NULL) {
 		return;
 	}
@@ -529,7 +534,7 @@ void ui_end_edit(UiState *ui) {
 	ui.input_cursor = 0;
 }
 
-static void edit_clamp_cursor(UiState *ui) {
+static void edit_clamp_cursor(UiState* ui) {
 	if (ui.input_cursor < 0) {
 		ui.input_cursor = 0;
 	}
@@ -553,16 +558,17 @@ static bool key_is_ctl(uint32_t key, char letter) {
 	return false;
 }
 
-bool ui_edit_handle_key(UiState *ui, uint32_t key) {
+bool ui_edit_handle_key(UiState* ui, uint32_t key) {
 	if (ui == NULL || !ui.editing) {
 		return false;
 	}
-	if (key == (uint32_t)TermKeyEnter || key == '\r' || key == '\n' ||
-		key_is_ctl(key, 'M') || key_is_ctl(key, 'J')) {
+	if (key == (uint32_t)TermKeyEnter || key == '\r' || key == '\n' || key_is_ctl(key, 'M') || key_is_ctl(key, 'J')) {
 		ui.edit_cancelled = false;
-		return true; /* accept */
+		return true;
+		/* accept */
 	}
-	if (key == 0x1B || key_is_ctl(key, 'G')) { /* escape / C-g cancel */
+	if (key == 0x1B || key_is_ctl(key, 'G')) {
+		/* escape / C-g cancel */
 		ui.edit_cancelled = true;
 		return true;
 	}
@@ -588,7 +594,8 @@ bool ui_edit_handle_key(UiState *ui, uint32_t key) {
 		return false;
 	}
 	/* Deletion */
-	if (key == 127 || key == 8 || key_is_ctl(key, 'H')) { /* backspace */
+	if (key == 127 || key == 8 || key_is_ctl(key, 'H')) {
+		/* backspace */
 		if (ui.input_cursor > 0) {
 			int i = ui.input_cursor - 1;
 			size_t n = ui.input_len - i;
@@ -609,12 +616,14 @@ bool ui_edit_handle_key(UiState *ui, uint32_t key) {
 		}
 		return false;
 	}
-	if (key_is_ctl(key, 'K')) { /* kill to end of line */
+	if (key_is_ctl(key, 'K')) {
+		/* kill to end of line */
 		ui.input[ui.input_cursor] = 0;
 		ui.input_len = ui.input_cursor;
 		return false;
 	}
-	if (key_is_ctl(key, 'U')) { /* kill whole line */
+	if (key_is_ctl(key, 'U')) {
+		/* kill whole line */
 		ui.input[0] = 0;
 		ui.input_len = 0;
 		ui.input_cursor = 0;
@@ -622,7 +631,7 @@ bool ui_edit_handle_key(UiState *ui, uint32_t key) {
 	}
 	/* Insert printable at caret */
 	if (key >= 32 && key < 127) {
-		if (ui.input_len + 1 < (int)sizeof(ui.input)) {
+		if (ui.input_len + 1 < (int) sizeof(ui.input)) {
 			int i = ui.input_cursor;
 			size_t n = ui.input_len - i + 1;
 			memmove(ui.input + i + 1, ui.input + i, n);
