@@ -1,17 +1,47 @@
 # ModFocus
 
-Terminal task organizer for status and attention — a spreadsheet-style
-workflow that stays in the shell. Command: `modfocus`.
+Focus on the right work — without leaving the shell.
 
-Each task has a status, a title, who it’s for (Attn), and optional context
-tags (`#home`, `#work`). New tasks land in `A:Inbox` (capture). Then triage
-with `s`: `B:Now` (this week — keep it small), `C:Soon`, `D:Later`,
-`E:Waiting` (ball in their court — Attn says who), `G:Someday`. Capture and
-title edit use one line: `@Charles` sets Attn, `#home` sets tags, the rest is
-the title (e.g. `@Brian @Jessica review PR #work`). Attn is stored as short
-names (`Charles`, `Brian, Jessica`). Tags stay in their own field and show dim
-after the title. Find and focus keep a long list usable; `f` focuses by `@attn`
-or `#tag` (Tab completes both).
+ModFocus is task management for people who live in the terminal. Capture
+ideas the moment they arrive, triage them into a clear status ladder, and
+narrow the list to who and what you’re dealing with right now. No projects
+tree, no nested subtasks — a flat spreadsheet of status, attention, and
+title.
+
+![ModFocus spreadsheet view with status, Attn, and tagged tasks](screenshot.png)
+
+### Get it out of your head, fast
+
+Press `n` and type. One line is enough: the title, who’s involved, and the
+context. `@Ada` sets Attn. `#work` sets tags. Everything else is the task.
+
+Drop tasks from any shell with `modfocus add` — no TUI required. They land
+in Inbox until you’re ready to decide.
+
+### Put every task in its place
+
+Status is the spine of the list. Cycle with `s`:
+
+- **Inbox** — captured, not yet sorted
+- **Now** — this week (keep it small)
+- **Soon** — next up
+- **Later** — parked on purpose
+- **Waiting** — ball in their court; Attn says who
+- **Someday** — maybe, not forgotten
+
+When Now grows past seven, the footer warns you. That’s the nudge to demote
+before the week swallows you.
+
+### See only what matters
+
+A long list stays usable when you can cut it down. Focus (`f`) on an `@name`
+or a `#tag` and everything else steps aside. Find (`/`) searches across
+fields. Sort (`o`) restores order: status, then Attn, then title.
+
+Blue letters in the header and footer mark the shortcuts — the UI teaches
+itself as you go.
+
+---
 
 ## Install
 
@@ -19,79 +49,103 @@ or `#tag` (Tab completes both).
 brew install jdpalmer/tap/modfocus
 ```
 
-Needs a terminal with the Kitty keyboard protocol (Kitty, Ghostty, and similar).
-
-## Build
-
-Requires [`modc`](https://github.com/jdpalmer/modc) and `modc-qbe` on `PATH`:
+Then:
 
 ```bash
-modc build -M . -o modfocus
+modfocus
+modfocus add @Charles review PR #work
 ```
 
-## Test
+---
+
+## Features
+
+#### One-line capture
+
+Type `@names`, `#tags`, and a title in a single field. Tab completes both.
+The same language works in the TUI and on the CLI.
+
+#### Quiet Now
+
+The footer counts how many tasks sit in Now. Cross seven and it turns red
+with `demote?` — a gentle guardrail against overload.
+
+#### Saves as you go
+
+Edits persist immediately. Point `--db` or `$MFDB` at a synced folder to
+share one list across machines.
+
+#### Rotating backups
+
+Each save can mint a backup generation (at most once per hour). If the
+primary file is missing, ModFocus restores from the newest backup.
+
+#### Complete, out of the way
+
+Mark done with `x`. Completed tasks stay hidden until you toggle them with
+`X`.
+
+---
+
+## Specs
+
+### Requirements
+
+- Terminal with the Kitty keyboard protocol (Kitty, Ghostty, and similar)
+- [modc](https://github.com/jdpalmer/modc) and `modc-qbe` to build from source
+
+### Store
+
+| | |
+|---|---|
+| Default path | `$MFDB`, or `~/.config/modfocus/tasks.json` |
+| Format | JSON |
+| Sync | Task-level last-write-wins on idle reload and `--import` |
+| Backups | Rotating `.bak.1` … `.bak.5` beside the store |
+
+### CLI
 
 ```bash
-modc test -M . model
-modc test -M . store
-modc test -M . cli_add_test.mc
+modfocus
+modfocus --db /path/to/tasks.json
+modfocus --import seed.json
+modfocus add buy milk
+modfocus add @Charles review PR
+modfocus add pick up dry cleaning #home #errands
+modfocus add --attn Charles --tag work review PR
 ```
 
-## Run
-
-```bash
-./modfocus
-./modfocus --db /path/to/tasks.json
-./modfocus --import seed.json
-./modfocus add buy milk
-./modfocus add @Charles review PR
-./modfocus add pick up dry cleaning #home #errands
-./modfocus add --tag home buy milk
-./modfocus add --attn Charles review PR
-```
-
-`add` appends an `A:Inbox` task and prints its id (no TUI). `@attn` and
-`#tags` in the title are parsed; optional `--attn` / `-a` and repeated
-`--tag` / `-t` also apply.
-
-Default store: `$MFDB`, or `~/.config/modfocus/tasks.json`. Point `--db` /
-`MFDB` at a synced folder if you use the same list on more than one machine.
-Changes save as you go. Saves write a temp file then atomically replace the
-DB. Before replace, ModFocus copies the live file into rotating backups
-(`tasks.json.bak.1` … `.bak.5`, newest first), at most one new generation per
-hour — the live file is never moved aside. If the primary is missing at
-startup, `.bak.1` is restored when present. Idle reload and `--import` both do
-**task-level last-write-wins** merge by `id` + `updated`: newer whole task
-wins; equal `updated` keeps local; incoming-only tasks are added; local-only
-tasks stay. There is no delete sync and no field-level merge (concurrent
-edits to different fields of the same task still resolve as one whole task).
-`--import` creates the destination DB if it is missing.
-
-## Keys
-
-Blue letters mark shortcuts: column keys in the header; footer right uses the
-same style (`new`, `focus`/`unfocus`, `/find`/`/clear`, `sort`, `kill`, `xdone`,
-`Xall`, `quit`). Footer left is view state (`visible/total`, `B:n`, focus, find,
-flash). If `B:Now` is over 7 it shows red `B:n:demote?`.
+### Keys
 
 | Key | Action |
 |-----|--------|
 | arrows / `C-n` / `C-p` | Move |
 | `S-Up` / `S-Down` / PgUp / PgDn / `C-v` | Page |
 | `s` | Cycle status (skips Complete) |
-| `k` | Kill (remove) selected task — prompts `y`/`n` |
-| `x` | Mark complete (hidden unless showing complete) |
-| `X` | Toggle showing completed tasks |
-| `o` | Sort (status → Attn → title) |
-| `t` / Enter | Edit title (`@attn` / `#tags` in the line; Tab completes both) |
-| `a` | Edit Attn (names; comma or space separated; Tab completes) |
-| `n` | New task (one field; prefills `@attn` from current row) |
-| `/` | Find across fields including tags (press again to clear) |
-| `f` | Focus by `@attn` or `#tag` (press again to clear; Tab completes both) |
+| `k` | Kill selected task |
+| `x` / `X` | Complete / show completed |
+| `o` | Sort |
+| `t` / Enter | Edit title |
+| `a` | Edit Attn |
+| `n` | New task |
+| `/` | Find |
+| `f` | Focus |
 | `g` / `G` | Top / bottom |
 | `C-l` | Redraw |
 | `q` | Quit |
 
-While editing: arrows / `C-b` `C-f` move; `C-a`/`Home` start; `C-e`/`End` end;
-Backspace/`C-h` delete left; Delete/`C-d` delete right; `C-k` kill to end;
-`C-u` kill line; Enter accept; Esc / `C-g` cancel.
+Editing uses familiar motion: `C-a` / `C-e`, `C-b` / `C-f`, `C-k`, `C-u`;
+Enter accepts, Esc / `C-g` cancels.
+
+### Build & test
+
+```bash
+modc build -M . -o modfocus
+modc test -M . model
+modc test -M . store
+modc test -M . cli_add_test.mc
+```
+
+### License
+
+MIT. See [LICENSE](LICENSE).
