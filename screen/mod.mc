@@ -27,6 +27,146 @@ static bool g_screen_dirty;
 static bool g_have_style;
 static uint16_t g_active_style_bits;
 
+/* UTF-8 helpers (from jem buffer) — decode for paint; encode for edit insert. */
+
+size_t utf8_next_offset(const char[..] data, size_t offset) {
+	size_t size = 1;
+	if (offset >= len(data)) {
+		return offset;
+	}
+	char c = data[offset];
+	if (c < 0x80) {
+		size = 1;
+	} else if ((c & 0xE0) == 0xC0) {
+		size = 2;
+	} else if ((c & 0xF0) == 0xE0) {
+		size = 3;
+	} else if ((c & 0xF8) == 0xF0) {
+		size = 4;
+	}
+	if (offset + size > len(data)) {
+		return offset + 1;
+	}
+	return offset + size;
+}
+
+size_t utf8_prev_offset(const char[..] data, size_t offset) {
+	if (offset == 0 || len(data) == 0) {
+		return 0;
+	}
+	size_t i = offset - 1;
+	if (i >= len(data)) {
+		i = len(data) - 1;
+	}
+	while (i > 0 && (data[i] & 0xC0) == 0x80) {
+		i--;
+	}
+	return i;
+}
+
+(uint32_t, size_t) utf8_decode_rune(const char[..] data, size_t offset) {
+	size_t n = len(data);
+	if (offset >= n) {
+		return (0, 0);
+	}
+	char c = data[offset];
+	if (c < 0x80) {
+		return (c, 1);
+	}
+	if ((c & 0xE0) == 0xC0 && offset + 1 < n) {
+		uint32_t r = (uint32_t)(c & 0x1F) << 6;
+		r |= data[offset + 1] & 0x3F;
+		return (r, 2);
+	}
+	if ((c & 0xF0) == 0xE0 && offset + 2 < n) {
+		uint32_t r = (uint32_t)(c & 0x0F) << 12;
+		r |= (uint32_t)(data[offset + 1] & 0x3F) << 6;
+		r |= data[offset + 2] & 0x3F;
+		return (r, 3);
+	}
+	if ((c & 0xF8) == 0xF0 && offset + 3 < n) {
+		uint32_t r = (uint32_t)(c & 0x07) << 18;
+		r |= (uint32_t)(data[offset + 1] & 0x3F) << 12;
+		r |= (uint32_t)(data[offset + 2] & 0x3F) << 6;
+		r |= data[offset + 3] & 0x3F;
+		return (r, 4);
+	}
+	return (c, 1);
+}
+
+int rune_display_width(uint32_t r) {
+	if (r == 0 || r < 32 || (r >= 0x7F && r < 0xA0)) {
+		return 0;
+	}
+	if (r == (uint32_t)'\t') {
+		return 1;
+	}
+	if (r >= 0x1100 &&
+		((r <= 0x115F) || (r >= 0x2E80 && r <= 0xA4CF) ||
+			(r >= 0xAC00 && r <= 0xD7A3) ||
+			(r >= 0xF900 && r <= 0xFAFF) ||
+			(r >= 0xFE10 && r <= 0xFE6F) ||
+			(r >= 0xFF00 && r <= 0xFF60) ||
+			(r >= 0xFFE0 && r <= 0xFFE6) ||
+			(r >= 0x20000 && r <= 0x3FFFD))) {
+		return 2;
+	}
+	return 1;
+}
+
+size_t utf8_encode_rune(uint32_t r, char[..] out) {
+	if (cap(out) < 4) {
+		return 0;
+	}
+	if ((r >= 0xD800 && r <= 0xDFFF) || r > 0x10FFFF) {
+		r = 0xFFFD;
+	}
+	if (r < 0x80) {
+		out[0] = (char)r;
+		return 1;
+	}
+	if (r < 0x800) {
+		out[0] = (char)(0xC0 | (r >> 6));
+		out[1] = (char)(0x80 | (r & 0x3F));
+		return 2;
+	}
+	if (r < 0x10000) {
+		out[0] = (char)(0xE0 | (r >> 12));
+		out[1] = (char)(0x80 | ((r >> 6) & 0x3F));
+		out[2] = (char)(0x80 | (r & 0x3F));
+		return 3;
+	}
+	out[0] = (char)(0xF0 | (r >> 18));
+	out[1] = (char)(0x80 | ((r >> 12) & 0x3F));
+	out[2] = (char)(0x80 | ((r >> 6) & 0x3F));
+	out[3] = (char)(0x80 | (r & 0x3F));
+	return 4;
+}
+
+/* Display columns for data[0..byte_end), stopping at incomplete trailing bytes. */
+int utf8_prefix_cols(const char[..] data, size_t byte_end) {
+	size_t i = 0;
+	int cols = 0;
+	size_t n = len(data);
+	if (byte_end < n) {
+		n = byte_end;
+	}
+	while (i < n) {
+		auto (r, sz) = utf8_decode_rune(data, i);
+		int w = 0;
+		if (sz == 0 || i + sz > n) {
+			break;
+		}
+		w = rune_display_width(r);
+		if (w <= 0) {
+			w = 1;
+		}
+		cols += w;
+		i += sz;
+	}
+	return cols;
+}
+
 static TextStyle style_default() {
 	return text_style_make(TermColorBase0, TermColorBase03, 0);
 }
@@ -151,31 +291,40 @@ void screen_put_rune(int row, int col, uint32_t ch, TextStyle style) {
 
 void screen_put_str(int row, int col, const char[..] text, TextStyle style) {
 	int c = col;
+	size_t i = 0;
 	if (ptr(text) == NULL) {
 		return;
 	}
-	for (auto ch: text) {
-		if (ch == 0 || c >= g_screen.cols) {
+	while (i < len(text) && c < g_screen.cols) {
+		auto (r, sz) = utf8_decode_rune(text, i);
+		int w = 0;
+		if (sz == 0) {
 			break;
 		}
-		screen_put_rune(row, c, ch, style);
-		c++;
+		if (r == 0) {
+			break;
+		}
+		w = rune_display_width(r);
+		if (w <= 0) {
+			w = 1;
+		}
+		if (c + w > g_screen.cols) {
+			break;
+		}
+		screen_put_rune(row, c, r, style);
+		for (int k = 1; k < w; k++) {
+			screen_put_rune(row, c + k, 0, style);
+		}
+		c += w;
+		i += sz;
 	}
 }
 
 void screen_put_cstr(int row, int col, const char* text, TextStyle style) {
-	int c = col;
 	if (text == NULL) {
 		return;
 	}
-	const char[..] view = ranged(text, strlen(text));
-	for (auto ch: view) {
-		if (c >= g_screen.cols) {
-			break;
-		}
-		screen_put_rune(row, c, ch, style);
-		c++;
-	}
+	screen_put_str(row, col, ranged(text, strlen(text)), style);
 }
 
 void screen_fill_row(int row, TextStyle style) {

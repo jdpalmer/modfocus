@@ -62,25 +62,65 @@ void ui_set_status(UiState* ui, const char[..] msg) {
 	(void)cstr_write(ranged(ui.mode_line, sizeof(ui.mode_line)), msg);
 }
 
+/* Fill [col, col+width) with UTF-8 text by display columns; pad with spaces. */
 static void put_clipped(int row, int col, int width, const char[..] text, TextStyle st) {
-	int i = 0;
+	int filled = 0;
+	size_t i = 0;
 	if (width <= 0) {
 		return;
 	}
-	for (; i < width; i++) {
-		char ch = ' ';
-		if (i < (int)len(text)) {
-			ch = text[i];
+	while (i < len(text) && filled < width) {
+		auto (r, sz) = utf8_decode_rune(text, i);
+		int w = 0;
+		if (sz == 0) {
+			break;
 		}
-		screen_put_rune(row, col + i, ch, st);
+		w = rune_display_width(r);
+		if (w <= 0) {
+			w = 1;
+		}
+		if (filled + w > width) {
+			break;
+		}
+		screen_put_rune(row, col + filled, r, st);
+		for (int k = 1; k < w; k++) {
+			screen_put_rune(row, col + filled + k, 0, st);
+		}
+		filled += w;
+		i += sz;
 	}
+	while (filled < width) {
+		screen_put_rune(row, col + filled, ' ', st);
+		filled++;
+	}
+}
+
+/* Paint one rune at display column; pads wide glyphs. Advances *filled. */
+static void put_rune_cols(int row, int col, int width, int* filled, uint32_t r, TextStyle st) {
+	int w = rune_display_width(r);
+	if (filled == NULL || *filled >= width) {
+		return;
+	}
+	if (w <= 0) {
+		w = 1;
+	}
+	if (*filled + w > width) {
+		return;
+	}
+	screen_put_rune(row, col + *filled, r, st);
+	for (int k = 1; k < w; k++) {
+		screen_put_rune(row, col + *filled + k, 0, st);
+	}
+	*filled += w;
 }
 
 /* Paint label with mnemonic letter in blue+bold (same bg). */
 static void put_mnemonic(int row, int col, int width, const char[..] text, char mnemonic, TextStyle st) {
-	int marked = -1;
+	int marked_col = -1;
 	char want = mnemonic;
 	TextStyle hot = text_style_make(TermColorBlue, text_style_bg(st), (uint16_t)TextStyleBold);
+	int filled = 0;
+	size_t i = 0;
 	if (width <= 0) {
 		return;
 	}
@@ -88,29 +128,54 @@ static void put_mnemonic(int row, int col, int width, const char[..] text, char 
 		want = (char)(want - 'A' + 'a');
 	}
 	{
-		int i = 0;
-		for (auto ch: text) {
-			char low = ch;
-			if (low >= 'A' && low <= 'Z') {
-				low = (char)(low - 'A' + 'a');
-			}
-			if (low == want) {
-				marked = i;
+		int dcol = 0;
+		size_t at = 0;
+		while (at < len(text)) {
+			auto (r, sz) = utf8_decode_rune(text, at);
+			int w = 0;
+			if (sz == 0) {
 				break;
 			}
-			i++;
+			w = rune_display_width(r);
+			if (w <= 0) {
+				w = 1;
+			}
+			if (marked_col < 0 && r < 128) {
+				char low = (char)r;
+				if (low >= 'A' && low <= 'Z') {
+					low = (char)(low - 'A' + 'a');
+				}
+				if (low == want) {
+					marked_col = dcol;
+				}
+			}
+			dcol += w;
+			at += sz;
 		}
 	}
-	for (int i = 0; i < width; i++) {
-		char ch = ' ';
+	while (i < len(text) && filled < width) {
+		auto (r, sz) = utf8_decode_rune(text, i);
+		int w = 0;
 		TextStyle use = st;
-		if (i < (int)len(text)) {
-			ch = text[i];
-			if (i == marked) {
-				use = hot;
-			}
+		if (sz == 0) {
+			break;
 		}
-		screen_put_rune(row, col + i, ch, use);
+		w = rune_display_width(r);
+		if (w <= 0) {
+			w = 1;
+		}
+		if (filled + w > width) {
+			break;
+		}
+		if (filled == marked_col) {
+			use = hot;
+		}
+		put_rune_cols(row, col, width, &filled, r, use);
+		i += sz;
+	}
+	while (filled < width) {
+		screen_put_rune(row, col + filled, ' ', st);
+		filled++;
 	}
 }
 
@@ -246,20 +311,44 @@ static void paint_task_row(int screen_row, int c, int w_status, int w_cc, int w_
 	{
 		TermColor bg = text_style_bg(st);
 		TextStyle tag_st = text_style_make(TermColorBase01, bg, 0);
-		int ti = 0;
-		int title_n = (int)len(t.title);
-		int tags_n = (int)len(t.tags);
-		int gap = (title_n > 0 && tags_n > 0) ? 2: 0;
-		for (; ti < w_task; ti++) {
-			char ch = ' ';
-			TextStyle use = st;
-			if (ti < title_n) {
-				ch = t.title[ti];
-			} else if (tags_n > 0 && ti >= title_n + gap && ti - title_n - gap < tags_n) {
-				ch = t.tags[ti - title_n - gap];
-				use = tag_st;
+		int filled = 0;
+		size_t i = 0;
+		while (i < len(t.title) && filled < w_task) {
+			auto (r, sz) = utf8_decode_rune(t.title, i);
+			int before = filled;
+			if (sz == 0) {
+				break;
 			}
-			screen_put_rune(screen_row, c + ti, ch, use);
+			put_rune_cols(screen_row, c, w_task, &filled, r, st);
+			if (filled == before) {
+				break;
+			}
+			i += sz;
+		}
+		if (len(t.title) > 0 && len(t.tags) > 0) {
+			int gap = 2;
+			while (gap > 0 && filled < w_task) {
+				screen_put_rune(screen_row, c + filled, ' ', st);
+				filled++;
+				gap--;
+			}
+		}
+		i = 0;
+		while (i < len(t.tags) && filled < w_task) {
+			auto (r, sz) = utf8_decode_rune(t.tags, i);
+			int before = filled;
+			if (sz == 0) {
+				break;
+			}
+			put_rune_cols(screen_row, c, w_task, &filled, r, tag_st);
+			if (filled == before) {
+				break;
+			}
+			i += sz;
+		}
+		while (filled < w_task) {
+			screen_put_rune(screen_row, c + filled, ' ', st);
+			filled++;
 		}
 	}
 }
@@ -538,7 +627,9 @@ void ui_paint(UiState* ui) {
 	paint_footer(ui, cols);
 	if (ui.editing) {
 		int cursor_row = screen_rows() - 1;
-		int cursor_col = (int)strlen(ui.prompt) + ui.input_cursor + 1;
+		int cursor_col = 1;
+		cursor_col += utf8_prefix_cols(ranged(ui.prompt, strlen(ui.prompt)), strlen(ui.prompt));
+		cursor_col += utf8_prefix_cols(ranged(ui.input, ui.input_len), ui.input_cursor);
 		if (cursor_col >= cols) {
 			cursor_col = cols - 1;
 		}
@@ -614,18 +705,21 @@ bool ui_edit_handle_key(UiState* ui, uint32_t key) {
 		ui.edit_cancelled = true;
 		return true;
 	}
-	/* Motion — jem/emacs style */
-	if (key == (uint32_t)TermKeyLeft || key_is_ctl(key, 'B')) {
-		if (ui.input_cursor > 0) {
-			ui.input_cursor--;
+	/* Motion — jem/emacs style, by UTF-8 rune */
+	{
+		const char[..] line = ranged(ui.input, ui.input_len);
+		if (key == (uint32_t)TermKeyLeft || key_is_ctl(key, 'B')) {
+			if (ui.input_cursor > 0) {
+				ui.input_cursor = (int)utf8_prev_offset(line, ui.input_cursor);
+			}
+			return false;
 		}
-		return false;
-	}
-	if (key == (uint32_t)TermKeyRight || key_is_ctl(key, 'F')) {
-		if (ui.input_cursor < ui.input_len) {
-			ui.input_cursor++;
+		if (key == (uint32_t)TermKeyRight || key_is_ctl(key, 'F')) {
+			if (ui.input_cursor < ui.input_len) {
+				ui.input_cursor = (int)utf8_next_offset(line, ui.input_cursor);
+			}
+			return false;
 		}
-		return false;
 	}
 	if (key == (uint32_t)TermKeyHome || key_is_ctl(key, 'A')) {
 		ui.input_cursor = 0;
@@ -637,23 +731,25 @@ bool ui_edit_handle_key(UiState* ui, uint32_t key) {
 	}
 	/* Deletion */
 	if (key == 127 || key == 8 || key_is_ctl(key, 'H')) {
-		/* backspace */
+		/* backspace one rune */
 		if (ui.input_cursor > 0) {
-			int i = ui.input_cursor - 1;
-			size_t n = ui.input_len - i;
-			memmove(ui.input + i, ui.input + i + 1, n);
-			ui.input_len--;
-			ui.input_cursor--;
+			const char[..] line = ranged(ui.input, ui.input_len);
+			int start = (int)utf8_prev_offset(line, ui.input_cursor);
+			int del = ui.input_cursor - start;
+			memmove(ui.input + start, ui.input + ui.input_cursor, ui.input_len - ui.input_cursor + 1);
+			ui.input_len -= del;
+			ui.input_cursor = start;
 			ui.input[ui.input_len] = 0;
 		}
 		return false;
 	}
 	if (key == (uint32_t)TermKeyDelete || key_is_ctl(key, 'D')) {
 		if (ui.input_cursor < ui.input_len) {
-			int i = ui.input_cursor;
-			size_t n = ui.input_len - i;
-			memmove(ui.input + i, ui.input + i + 1, n);
-			ui.input_len--;
+			const char[..] line = ranged(ui.input, ui.input_len);
+			int end = (int)utf8_next_offset(line, ui.input_cursor);
+			int del = end - ui.input_cursor;
+			memmove(ui.input + ui.input_cursor, ui.input + end, ui.input_len - end + 1);
+			ui.input_len -= del;
 			ui.input[ui.input_len] = 0;
 		}
 		return false;
@@ -671,15 +767,16 @@ bool ui_edit_handle_key(UiState* ui, uint32_t key) {
 		ui.input_cursor = 0;
 		return false;
 	}
-	/* Insert printable at caret */
-	if (key >= 32 && key < 127) {
-		if (ui.input_len + 1 < (int) sizeof(ui.input)) {
+	/* Insert printable rune at caret (ASCII or Unicode). */
+	if ((key >= 32 && key < 0x7F) || (key >= 0xA0 && key < 0x110000)) {
+		char bytes[4] = { 0 };
+		size_t nbytes = utf8_encode_rune(key, ranged(bytes, sizeof(bytes)));
+		if (nbytes > 0 && ui.input_len + (int)nbytes < (int)sizeof(ui.input)) {
 			int i = ui.input_cursor;
-			size_t n = ui.input_len - i + 1;
-			memmove(ui.input + i + 1, ui.input + i, n);
-			ui.input[i] = (char)key;
-			ui.input_len++;
-			ui.input_cursor++;
+			memmove(ui.input + i + (int)nbytes, ui.input + i, ui.input_len - i + 1);
+			memcpy(ui.input + i, bytes, nbytes);
+			ui.input_len += (int)nbytes;
+			ui.input_cursor += (int)nbytes;
 			edit_clamp_cursor(ui);
 		}
 		return false;
