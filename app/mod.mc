@@ -221,6 +221,47 @@ static bool val_is_all(const char[..] val) {
 }
 
 /*
+ * First-run only (missing DB): a few real tasks that teach the sheet.
+ * Tagged #tutorial so focus/find/kill are obvious.
+ */
+static bool seed_tutorial_tasks() {
+	static const struct {
+		const char* status;
+		const char* title;
+		const char* attn;
+	} rows[] = {
+		{ "A:Inbox", "Press n to capture — @Ada and #tags go on the same line", "" },
+		{ "B:Now", "Press s to cycle status; keep Now small (footer warns past 7)", "" },
+		{ "C:Soon", "Press f then #tutorial to focus; / to find; again clears", "" },
+		{ "E:Waiting", "Waiting = ball in their court — Attn says who", "Ada" },
+		{ "G:Someday", "Press k to kill these when you are done exploring", "" },
+	};
+	for (int i = 0; i < (int)(sizeof(rows) / sizeof(rows[0])); i++) {
+		Task t = { 0 };
+		const char[..] title = str_from_cstr(rows[i].title);
+		const char[..] status = str_from_cstr(rows[i].status);
+		const char[..] attn = str_from_cstr(rows[i].attn);
+		if (!str_set(&t.title, title) || !str_set(&t.status, status)) {
+			t.clear();
+			return false;
+		}
+		if (!g_app.store.add(&t)) {
+			t.clear();
+			return false;
+		}
+		t.clear();
+		int at = g_app.store.count - 1;
+		if (at < 0 || !g_app.store.set_tags(at, "#tutorial")) {
+			return false;
+		}
+		if (len(attn) > 0 && !g_app.store.set_cc(at, attn)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/*
  * Append Inbox task. title required; tags/attn optional (normalized via setters).
  * On success writes id into id_out (if provided) and returns store index; else -1.
  */
@@ -1001,9 +1042,13 @@ int app_run(const char[..][..] args) {
 				fprintf(stderr, "modfocus: load failed: %s\n", g_app.db_path);
 				return 1;
 			}
-			/* Truly missing — start empty. */
+			/* Truly missing — first run: seed a short #tutorial list. */
 			g_app.store.init();
-			ui_set_status(&g_app.ui, "new database");
+			if (!seed_tutorial_tasks() || !save_db_quiet()) {
+				fprintf(stderr, "modfocus: tutorial seed failed\n");
+				return 1;
+			}
+			ui_set_status(&g_app.ui, "tutorial");
 		}
 	}
 	note_db_mtime();

@@ -60,6 +60,11 @@ modfocus add @Charles review PR #work
 
 ## Features
 
+#### First-run tutorial
+
+A new store opens with a few `#tutorial` tasks that show capture, status,
+focus, Waiting/Attn, and how to clear them. Kill with `k` when you’re done.
+
 #### One-line capture
 
 Type `@names`, `#tags`, and a title in a single field. Tab completes both.
