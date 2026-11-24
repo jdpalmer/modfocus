@@ -49,6 +49,9 @@ itself as you go.
 brew install jdpalmer/tap/modfocus
 ```
 
+Works in any TTY. Kitty keyboard protocol (Kitty, Ghostty, and similar) is
+preferred for richer key chords; without it, standard keys still work.
+
 Then:
 
 ```bash
@@ -96,7 +99,7 @@ Mark done with `x`. Completed tasks stay hidden until you toggle them with
 
 ### Requirements
 
-- Terminal with the Kitty keyboard protocol (Kitty, Ghostty, and similar)
+- A TTY (Kitty keyboard protocol preferred for Shift-arrows and friends)
 - [modc](https://github.com/jdpalmer/modc) and `modc-qbe` to build from source
 
 ### Store

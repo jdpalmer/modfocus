@@ -664,10 +664,12 @@ static bool term_probe_kitty() {
 }
 
 static void term_enable_modes() {
-	/* Alt screen + Kitty keys only. Mouse/bracketed paste off — use the
-	 * terminal's own copy/paste. */
+	/* Alt screen; Kitty key mode only when the probe succeeded. Mouse /
+	 * bracketed paste stay off — use the terminal's own copy/paste. */
 	term_emit("\x1b[?1049h", sizeof("\x1b[?1049h") - 1);
-	term_emit("\x1b[>1u", sizeof("\x1b[>1u") - 1);
+	if (g_kitty) {
+		term_emit("\x1b[>1u", sizeof("\x1b[>1u") - 1);
+	}
 	term_out_flush();
 	g_altbuf = true;
 }
@@ -764,14 +766,12 @@ bool term_open() {
 	}
 	g_tty_raw = true;
 	term_in_reset();
-	if (!term_probe_kitty()) {
-		tty_set_cooked(&g_fin);
-		g_tty_raw = false;
-		fprintf(stderr, "modfocus: this terminal does not support the Kitty keyboard protocol.\n");
-		fprintf(stderr, "modfocus: please use Kitty, WezTerm, Ghostty, foot, or Windows Terminal.\n");
-		return false;
+	/* Kitty keyboard protocol is an enhancement (better Shift-arrows, etc.),
+	 * not a hard gate — standard ANSI keys still work without it. */
+	g_kitty = term_probe_kitty();
+	if (!g_kitty) {
+		fprintf(stderr, "modfocus: Kitty keyboard protocol unavailable; using basic keys\n");
 	}
-	g_kitty = true;
 	term_enable_modes();
 	term_title_push();
 	g_set_title[0] = 0;
@@ -785,7 +785,9 @@ void term_close() {
 	if (!g_open) {
 		return;
 	}
-	term_emit("\x1b[<u", sizeof("\x1b[<u") - 1);
+	if (g_kitty) {
+		term_emit("\x1b[<u", sizeof("\x1b[<u") - 1);
+	}
 	/* Turn off mouse/paste in case a prior run left them on. */
 	term_emit("\x1b[?2004l", sizeof("\x1b[?2004l") - 1);
 	term_emit("\x1b[?1006l", sizeof("\x1b[?1006l") - 1);
@@ -839,12 +841,7 @@ bool term_resume() {
 	}
 	g_tty_raw = true;
 	if (!g_kitty) {
-		if (!term_probe_kitty()) {
-			tty_set_cooked(&g_fin);
-			g_tty_raw = false;
-			return false;
-		}
-		g_kitty = true;
+		g_kitty = term_probe_kitty();
 	}
 	term_enable_modes();
 	term_title_push();

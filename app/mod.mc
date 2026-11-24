@@ -766,7 +766,7 @@ static void usage() {
 	fprintf(stderr, "       modfocus [--db path] add [--attn name] [--tag name]... title...\n");
 	fprintf(stderr, "  MFDB env overrides default config path\n");
 	fprintf(stderr, "  add captures into A:Inbox; @attn and #tags in the title are parsed\n");
-	fprintf(stderr, "  Requires a Kitty keyboard protocol terminal (Kitty, Ghostty, ...)\n");
+	fprintf(stderr, "  Kitty keyboard protocol preferred (Kitty, Ghostty, …); other TTYs work with basic keys\n");
 }
 
 /* Join args[from..] into dst with spaces; false if empty or won't fit. */
@@ -1055,7 +1055,7 @@ int app_run(const char[..][..] args) {
 	refresh_visible();
 	crash_init(crash_cleanup);
 	if (!term_open()) {
-		fprintf(stderr, "modfocus: term_open failed (need a Kitty-protocol TTY)\n");
+		fprintf(stderr, "modfocus: term_open failed (need a TTY)\n");
 		return 1;
 	}
 	defer term_close();
