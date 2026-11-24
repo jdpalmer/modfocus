@@ -206,7 +206,7 @@ static void attn_to_at_prefill(const char[..] cc, char[..] dst) {
 }
 
 static void do_kill(int idx) {
-	if (!g_app.store.remove(idx)) {
+	if (!g_app.store.kill(idx)) {
 		ui_set_status(&g_app.ui, "kill failed");
 		return;
 	}

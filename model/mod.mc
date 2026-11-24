@@ -17,6 +17,9 @@ enum {
 	TaskCcCap = 160,
 	TaskTagsCap = 160,
 	StoreMaxTasks = 4096,
+	TombstoneMax = 512,
+	/* Drop tombstones older than this on save (seconds). */
+	TombstoneKeepSec = 30 * 24 * 60 * 60,
 	FilterTextCap = 128,
 	VisibleMax = StoreMaxTasks,
 	AttnNamesMax = 64,
@@ -35,9 +38,17 @@ struct Task {
 	char[..] updated;
 };
 
+/* Deleted-id marker so LWW merge does not resurrect kills across machines. */
+struct Tombstone {
+	char[..] id;
+	char[..] deleted;
+};
+
 struct TaskStore {
 	Task tasks[StoreMaxTasks];
 	int count;
+	Tombstone tombs[TombstoneMax];
+	int tomb_count;
 	int next_id;
 	bool dirty;
 };
@@ -127,9 +138,20 @@ static bool task_copy_into(Task* dst, const Task* src) {
 	return true;
 }
 
+static void tomb_clear(Tombstone* t) {
+	if (t == NULL) {
+		return;
+	}
+	str_free(&t.id);
+	str_free(&t.deleted);
+}
+
 void (TaskStore* store).init() {
 	for (int i = 0; i < store.count; i++) {
 		store.tasks[i].clear();
+	}
+	for (int i = 0; i < store.tomb_count; i++) {
+		tomb_clear(&store.tombs[i]);
 	}
 	memset(store, 0, sizeof(*store));
 	store.next_id = 1;
@@ -141,6 +163,148 @@ void (ViewFilter* f).init() {
 	str_free(&f.text);
 	memset(f, 0, sizeof(*f));
 	f.show_complete = false;
+}
+
+static bool stamp_now(char[..] *dst) {
+	char buf[40] = { 0 };
+	int64_t now = time(NULL);
+	struct PfTm* tm = gmtime(&now);
+	if (dst == NULL) {
+		return false;
+	}
+	if (tm == NULL) {
+		return field_set_cstr(dst, "0");
+	}
+	snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+	return field_set_cstr(dst, buf);
+}
+
+static int tomb_find_id(const TaskStore* store, const char[..] id) {
+	if (store == NULL || len(id) == 0) {
+		return -1;
+	}
+	for (int i = 0; i < store.tomb_count; i++) {
+		if (str_eq(store.tombs[i].id, id)) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static void tomb_remove_at(TaskStore* store, int index) {
+	if (store == NULL || index < 0 || index >= store.tomb_count) {
+		return;
+	}
+	tomb_clear(&store.tombs[index]);
+	for (int i = index; i + 1 < store.tomb_count; i++) {
+		store.tombs[i] = store.tombs[i + 1];
+	}
+	memset(&store.tombs[store.tomb_count - 1], 0, sizeof(Tombstone));
+	store.tomb_count--;
+	store.dirty = true;
+}
+
+/* Upsert tombstone; deleted empty → stamp now. */
+[[nodiscard]] bool (TaskStore* store).tomb_put(const char[..] id, const char[..] deleted) {
+	char[..] stamp = str_empty();
+	if (len(id) == 0) {
+		return false;
+	}
+	defer str_free(&stamp);
+	if (len(deleted) > 0) {
+		if (!str_set(&stamp, deleted)) {
+			return false;
+		}
+	} else if (!stamp_now(&stamp)) {
+		return false;
+	}
+	int at = tomb_find_id(store, id);
+	if (at >= 0) {
+		if (str_cmp(stamp, store.tombs[at].deleted) <= 0) {
+			return true;
+		}
+		if (!field_set(&store.tombs[at].deleted, stamp)) {
+			return false;
+		}
+		store.dirty = true;
+		return true;
+	}
+	if (store.tomb_count >= TombstoneMax) {
+		/* Drop oldest slot to make room. */
+		tomb_remove_at(store, 0);
+	}
+	if (store.tomb_count >= TombstoneMax) {
+		return false;
+	}
+	{
+		Tombstone* t = &store.tombs[store.tomb_count];
+		memset(t, 0, sizeof(*t));
+		if (!field_set(&t.id, id) || !field_set(&t.deleted, stamp)) {
+			tomb_clear(t);
+			return false;
+		}
+		store.tomb_count++;
+		store.dirty = true;
+		return true;
+	}
+}
+
+/* True when a tombstone blocks this task stamp (deleted >= updated). */
+bool (TaskStore* store).tomb_blocks(const char[..] id, const char[..] updated) {
+	int at = tomb_find_id(store, id);
+	if (at < 0) {
+		return false;
+	}
+	if (len(updated) == 0) {
+		return true;
+	}
+	return str_cmp(store.tombs[at].deleted, updated) >= 0;
+}
+
+/* Kill: record tombstone then remove so sync cannot resurrect. */
+[[nodiscard]] bool (TaskStore* store).kill(int index) {
+	Task* t = store.get(index);
+	char[..] id = str_empty();
+	if (t == NULL) {
+		return false;
+	}
+	defer str_free(&id);
+	if (!str_set(&id, t.id)) {
+		return false;
+	}
+	if (!store.tomb_put(id, str_empty())) {
+		return false;
+	}
+	return store.remove(index);
+}
+
+/* Drop tombstones older than TombstoneKeepSec (by wall clock vs deleted stamp). */
+void (TaskStore* store).tomb_prune() {
+	char[..] cutoff = str_empty();
+	int64_t now = time(NULL);
+	char buf[40] = { 0 };
+	if (store.tomb_count == 0) {
+		return;
+	}
+	defer str_free(&cutoff);
+	if (now > TombstoneKeepSec) {
+		now -= TombstoneKeepSec;
+	} else {
+		now = 0;
+	}
+	struct PfTm* tm = gmtime(&now);
+	if (tm == NULL) {
+		return;
+	}
+	snprintf(buf, sizeof(buf), "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+	if (!field_set_cstr(&cutoff, buf)) {
+		return;
+	}
+	for (int i = store.tomb_count - 1; i >= 0; i--) {
+		if (str_cmp(store.tombs[i].deleted, cutoff) < 0) {
+			tomb_remove_at(store, i);
+		}
+	}
 }
 
 Task* (TaskStore* store).get(int index) {
@@ -185,6 +349,13 @@ Task* (TaskStore* store).get(int index) {
 	}
 	if (len(t.updated) == 0) {
 		t.touch();
+	}
+	/* A live task newer than its tombstone clears the delete marker. */
+	{
+		int ti = tomb_find_id(store, t.id);
+		if (ti >= 0 && str_cmp(t.updated, store.tombs[ti].deleted) > 0) {
+			tomb_remove_at(store, ti);
+		}
 	}
 	store.count++;
 	store.dirty = true;
@@ -982,6 +1153,12 @@ int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
 	t.clear();
 	*t = tmp;
 	memset(&tmp, 0, sizeof(tmp));
+	{
+		int ti = tomb_find_id(store, t.id);
+		if (ti >= 0 && str_cmp(t.updated, store.tombs[ti].deleted) > 0) {
+			tomb_remove_at(store, ti);
+		}
+	}
 	store.dirty = true;
 	return true;
 }

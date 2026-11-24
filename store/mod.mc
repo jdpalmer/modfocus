@@ -248,6 +248,38 @@ static void store_rotate_backups(const char[..] path) {
 		t.clear();
 		/* add deep-copied; drop temps */
 	}
+	/* Optional tombstones[] — older files omit it. */
+	{
+		const JsonValue* tombs = json_object_get(root, "tombstones");
+		if (tombs != NULL && tombs.type == JSON_ARRAY) {
+			for (size_t i = 0; i < json_array_size(tombs); i++) {
+				const JsonValue* item = json_array_get(tombs, i);
+				const char[..] id = { 0 };
+				const char[..] deleted = { 0 };
+				if (item == NULL || item.type != JSON_OBJECT) {
+					continue;
+				}
+				id = obj_str(item, "id");
+				deleted = obj_str(item, "deleted");
+				if (len(id) == 0) {
+					continue;
+				}
+				if (!store.tomb_put(id, deleted)) {
+					store.init();
+					return false;
+				}
+			}
+			/* Drop any loaded task still covered by a tombstone. */
+			for (int i = store.count - 1; i >= 0; i--) {
+				if (store.tomb_blocks(store.tasks[i].id, store.tasks[i].updated)) {
+					if (!store.remove(i)) {
+						store.init();
+						return false;
+					}
+				}
+			}
+		}
+	}
 	store.dirty = false;
 	store.sort();
 	return true;
@@ -257,6 +289,7 @@ static void store_rotate_backups(const char[..] path) {
 	if (!store_ensure_parent_dir(path)) {
 		return false;
 	}
+	store.tomb_prune();
 	JsonValue* root = json_new_object();
 	if (root == NULL) {
 		return false;
@@ -285,6 +318,31 @@ static void store_rotate_backups(const char[..] path) {
 		}
 		if (!json_array_append(arr, obj)) {
 			return false;
+		}
+	}
+	if (store.tomb_count > 0) {
+		JsonValue* tarr = json_new_array();
+		if (tarr == NULL) {
+			return false;
+		}
+		if (!json_object_set(root, "tombstones", tarr)) {
+			return false;
+		}
+		tarr = json_object_get_mutable(root, "tombstones");
+		for (int i = 0; i < store.tomb_count; i++) {
+			Tombstone* t = &store.tombs[i];
+			JsonValue* obj = json_new_object();
+			if (obj == NULL) {
+				return false;
+			}
+			if (!json_object_set(obj, "id", json_new_string_n(ptr(t.id), len(t.id))) ||
+				!json_object_set(obj, "deleted", json_new_string_n(ptr(t.deleted), len(t.deleted)))) {
+				json_free(obj);
+				return false;
+			}
+			if (!json_array_append(tarr, obj)) {
+				return false;
+			}
 		}
 	}
 	char* text = json_stringify(root);
@@ -375,9 +433,41 @@ static int updated_cmp(const char[..] a, const char[..] b) {
 	if (incoming == NULL) {
 		return false;
 	}
+	/* Merge tombstones first (LWW by deleted stamp); drop blocked local tasks. */
+	for (int i = 0; i < incoming.tomb_count; i++) {
+		const Tombstone* src = &incoming.tombs[i];
+		int ti = -1;
+		int at = -1;
+		if (len(src.id) == 0) {
+			continue;
+		}
+		ti = -1;
+		for (int j = 0; j < local.tomb_count; j++) {
+			if (str_eq(local.tombs[j].id, src.id)) {
+				ti = j;
+				break;
+			}
+		}
+		if (ti >= 0 && updated_cmp(src.deleted, local.tombs[ti].deleted) <= 0) {
+			continue;
+		}
+		if (!local.tomb_put(src.id, src.deleted)) {
+			break;
+		}
+		changed = true;
+		at = store_find_id(local, src.id);
+		if (at >= 0 && local.tomb_blocks(src.id, local.tasks[at].updated)) {
+			if (!local.remove(at)) {
+				break;
+			}
+		}
+	}
 	for (int i = 0; i < incoming.count; i++) {
 		const Task* src = &incoming.tasks[i];
 		int at = store_find_id(local, src.id);
+		if (local.tomb_blocks(src.id, src.updated)) {
+			continue;
+		}
 		if (at < 0) {
 			if (!local.add(src)) {
 				break;

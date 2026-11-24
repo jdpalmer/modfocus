@@ -105,7 +105,7 @@ Mark done with `x`. Completed tasks stay hidden until you toggle them with
 |---|---|
 | Default path | `$MFDB`, or `~/.config/modfocus/tasks.json` |
 | Format | JSON |
-| Sync | Task-level last-write-wins on idle reload and `--import` |
+| Sync | Task-level last-write-wins on idle reload and `--import`; kills leave tombstones so deletes do not resurrect |
 | Backups | Rotating `.bak.1` … `.bak.5` beside the store |
 
 ### CLI

@@ -180,6 +180,79 @@ static int test_merge_lww() {
 	return 0;
 }
 
+static int test_merge_tombstone_blocks_resurrect() {
+	TaskStore local = { 0 };
+	TaskStore incoming = { 0 };
+	local.init();
+	incoming.init();
+	int a = add_titled(&local, "doomed");
+	assert(a >= 0);
+	assert(str_set(&local.tasks[a].id, "t50"));
+	assert(str_set(&local.tasks[a].updated, "2021-01-01T00:00:00Z"));
+	assert(local.kill(a));
+	assert_eq(local.count, 0);
+	assert(local.tomb_count >= 1);
+	/* Incoming still has the pre-delete task — must not resurrect. */
+	int b = add_titled(&incoming, "zombie");
+	assert(b >= 0);
+	assert(str_set(&incoming.tasks[b].id, "t50"));
+	assert(str_set(&incoming.tasks[b].updated, "2021-01-01T00:00:00Z"));
+	assert(str_set(&incoming.tasks[b].title, "zombie"));
+	assert(!local.merge(&incoming));
+	assert_eq(local.count, 0);
+	/* Newer live task after the tomb clears it. */
+	assert(str_set(&incoming.tasks[b].title, "reborn"));
+	assert(str_set(&incoming.tasks[b].updated, "2099-01-01T00:00:00Z"));
+	assert(local.merge(&incoming));
+	assert_eq(local.count, 1);
+	assert(str_eq(local.tasks[0].title, "reborn"));
+	return 0;
+}
+
+static int test_merge_incoming_tombstone_kills_local() {
+	TaskStore local = { 0 };
+	TaskStore incoming = { 0 };
+	local.init();
+	incoming.init();
+	int a = add_titled(&local, "still here");
+	assert(a >= 0);
+	assert(str_set(&local.tasks[a].id, "t51"));
+	assert(str_set(&local.tasks[a].updated, "2021-01-01T00:00:00Z"));
+	int b = add_titled(&incoming, "will kill");
+	assert(b >= 0);
+	assert(str_set(&incoming.tasks[b].id, "t51"));
+	assert(incoming.kill(b));
+	assert_eq(incoming.count, 0);
+	assert(local.merge(&incoming));
+	assert_eq(local.count, 0);
+	return 0;
+}
+
+static int test_tombstone_save_load() {
+	pool p {
+		auto (dir, dok) = fs_mkdir_temp(&p, "", "modfocus-tomb-");
+		assert(dok && len(dir) > 0);
+		defer(void)fs_remove(dir);
+		auto (db, pok) = path_join(&p, dir, "tasks.json");
+		assert(pok);
+		TaskStore store = { 0 };
+		TaskStore loaded = { 0 };
+		store.init();
+		int at = add_titled(&store, "gone");
+		assert(at >= 0);
+		assert(str_set(&store.tasks[at].id, "t52"));
+		assert(store.kill(at));
+		assert(store.save(db));
+		loaded.init();
+		assert(loaded.load(db));
+		assert_eq(loaded.count, 0);
+		assert(loaded.tomb_count >= 1);
+		assert(loaded.tomb_blocks("t52", "2020-01-01T00:00:00Z"));
+		(void)fs_remove(db);
+	}
+	return 0;
+}
+
 static int test_merge_local_newer() {
 	TaskStore local = { 0 };
 	TaskStore incoming = { 0 };
@@ -412,6 +485,9 @@ int main() {
 	assert_eq(test_next_id_after_load(), 0);
 	assert_eq(test_merge_lww(), 0);
 	assert_eq(test_merge_local_newer(), 0);
+	assert_eq(test_merge_tombstone_blocks_resurrect(), 0);
+	assert_eq(test_merge_incoming_tombstone_kills_local(), 0);
+	assert_eq(test_tombstone_save_load(), 0);
 	assert_eq(test_ensure_parent_dir(), 0);
 	assert_eq(test_import_file(), 0);
 	assert_eq(test_backup_rotate(), 0);
