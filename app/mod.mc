@@ -238,9 +238,9 @@ static bool seed_tutorial_tasks() {
 	};
 	for (int i = 0; i < (int)(sizeof(rows) / sizeof(rows[0])); i++) {
 		Task t = { 0 };
-		const char[..] title = str_from_cstr(rows[i].title);
-		const char[..] status = str_from_cstr(rows[i].status);
-		const char[..] attn = str_from_cstr(rows[i].attn);
+		const char[..] title = ranged(rows[i].title, strlen(rows[i].title));
+		const char[..] status = ranged(rows[i].status, strlen(rows[i].status));
+		const char[..] attn = ranged(rows[i].attn, strlen(rows[i].attn));
 		if (!str_set(&t.title, title) || !str_set(&t.status, status)) {
 			t.clear();
 			return false;

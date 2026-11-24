@@ -75,20 +75,20 @@ size_t utf8_prev_offset(const char[..] data, size_t offset) {
 	}
 	if ((c & 0xE0) == 0xC0 && offset + 1 < n) {
 		uint32_t r = (uint32_t)(c & 0x1F) << 6;
-		r |= data[offset + 1] & 0x3F;
+		r |= (uint32_t)(data[offset + 1] & 0x3F);
 		return (r, 2);
 	}
 	if ((c & 0xF0) == 0xE0 && offset + 2 < n) {
 		uint32_t r = (uint32_t)(c & 0x0F) << 12;
 		r |= (uint32_t)(data[offset + 1] & 0x3F) << 6;
-		r |= data[offset + 2] & 0x3F;
+		r |= (uint32_t)(data[offset + 2] & 0x3F);
 		return (r, 3);
 	}
 	if ((c & 0xF8) == 0xF0 && offset + 3 < n) {
 		uint32_t r = (uint32_t)(c & 0x07) << 18;
 		r |= (uint32_t)(data[offset + 1] & 0x3F) << 12;
 		r |= (uint32_t)(data[offset + 2] & 0x3F) << 6;
-		r |= data[offset + 3] & 0x3F;
+		r |= (uint32_t)(data[offset + 3] & 0x3F);
 		return (r, 4);
 	}
 	return (c, 1);
@@ -194,7 +194,7 @@ TextStyle screen_style_selected() {
 }
 
 TextStyle screen_style_header() {
-	return text_style_make(TermColorBase1, TermColorBase02, (uint16_t)TextStyleBold);
+	return text_style_make(TermColorBase1, TermColorBase02, TextStyleBold);
 }
 
 TextStyle screen_style_status(char letter) {
@@ -222,7 +222,7 @@ TextStyle screen_style_status(char letter) {
 		fg = TermColorCyan;
 		/* Someday */
 	}
-	return text_style_make(fg, TermColorBase03, (uint16_t)TextStyleBold);
+	return text_style_make(fg, TermColorBase03, TextStyleBold);
 }
 
 static void screen_free(Screen* s) {
@@ -252,7 +252,7 @@ static bool screen_resize(Screen* s, int rows, int cols) {
 		return false;
 	}
 	for (auto* cell: pv) {
-		cell.ch = ' ';
+		cell.ch = (uint32_t)' ';
 		cell.style = def;
 	}
 	for (auto* d: dirty) {
@@ -330,7 +330,7 @@ void screen_put_cstr(int row, int col, const char* text, TextStyle style) {
 void screen_fill_row(int row, TextStyle style) {
 	int col = 0;
 	for (; col < g_screen.cols; col++) {
-		screen_put_rune(row, col, ' ', style);
+		screen_put_rune(row, col, (uint32_t)' ', style);
 	}
 }
 
@@ -577,7 +577,7 @@ static void row_sync(int row) {
 		for (; i < cols; i++) {
 			DispCell* b = cell_at(&g_prev, row, i);
 			if (b != NULL) {
-				b.ch = ' ';
+				b.ch = (uint32_t)' ';
 				b.style = normal;
 			}
 		}
@@ -604,7 +604,7 @@ static void reset_front_to_spaces() {
 	}
 	int n = g_prev.rows * g_prev.cols;
 	for (; i < n; i++) {
-		g_prev.cells[i].ch = ' ';
+		g_prev.cells[i].ch = (uint32_t)' ';
 		g_prev.cells[i].style = normal;
 	}
 }

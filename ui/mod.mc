@@ -90,7 +90,7 @@ static void put_clipped(int row, int col, int width, const char[..] text, TextSt
 		i += sz;
 	}
 	while (filled < width) {
-		screen_put_rune(row, col + filled, ' ', st);
+		screen_put_rune(row, col + filled, (uint32_t)' ', st);
 		filled++;
 	}
 }
@@ -118,7 +118,7 @@ static void put_rune_cols(int row, int col, int width, int* filled, uint32_t r, 
 static void put_mnemonic(int row, int col, int width, const char[..] text, char mnemonic, TextStyle st) {
 	int marked_col = -1;
 	char want = mnemonic;
-	TextStyle hot = text_style_make(TermColorBlue, text_style_bg(st), (uint16_t)TextStyleBold);
+	TextStyle hot = text_style_make(TermColorBlue, text_style_bg(st), TextStyleBold);
 	int filled = 0;
 	size_t i = 0;
 	if (width <= 0) {
@@ -174,7 +174,7 @@ static void put_mnemonic(int row, int col, int width, const char[..] text, char 
 		i += sz;
 	}
 	while (filled < width) {
-		screen_put_rune(row, col + filled, ' ', st);
+		screen_put_rune(row, col + filled, (uint32_t)' ', st);
 		filled++;
 	}
 }
@@ -300,7 +300,7 @@ static void paint_task_row(int screen_row, int c, int w_status, int w_cc, int w_
 		if (len(t.cc) == 0) {
 			TermColor bg = text_style_bg(st);
 			if (str_eq_cstr(t.status, "E:Waiting")) {
-				attn_st = text_style_make(TermColorRed, bg, (uint16_t)TextStyleBold);
+				attn_st = text_style_make(TermColorRed, bg, TextStyleBold);
 			} else {
 				attn_st = text_style_make(TermColorBase01, bg, 0);
 			}
@@ -328,7 +328,7 @@ static void paint_task_row(int screen_row, int c, int w_status, int w_cc, int w_
 		if (len(t.title) > 0 && len(t.tags) > 0) {
 			int gap = 2;
 			while (gap > 0 && filled < w_task) {
-				screen_put_rune(screen_row, c + filled, ' ', st);
+				screen_put_rune(screen_row, c + filled, (uint32_t)' ', st);
 				filled++;
 				gap--;
 			}
@@ -347,7 +347,7 @@ static void paint_task_row(int screen_row, int c, int w_status, int w_cc, int w_
 			i += sz;
 		}
 		while (filled < w_task) {
-			screen_put_rune(screen_row, c + filled, ' ', st);
+			screen_put_rune(screen_row, c + filled, (uint32_t)' ', st);
 			filled++;
 		}
 	}
@@ -404,7 +404,7 @@ static int count_status(const TaskStore* store, const char[..] status) {
 
 /* Blue single-key glyph (narrow footer fallback). */
 static void put_hot_key(int row, int col, char key, TextStyle st) {
-	TextStyle hot = text_style_make(TermColorBlue, text_style_bg(st), (uint16_t)TextStyleBold);
+	TextStyle hot = text_style_make(TermColorBlue, text_style_bg(st), TextStyleBold);
 	screen_put_rune(row, col, key, hot);
 }
 
@@ -426,7 +426,7 @@ static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bo
 		int i = 0;
 		for (auto ch: keyv) {
 			if (ch == ' ') {
-				screen_put_rune(row, col + i, ' ', st);
+				screen_put_rune(row, col + i, (uint32_t)' ', st);
 			} else {
 				put_hot_key(row, col + i, ch, st);
 			}
@@ -444,10 +444,10 @@ static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bo
 	for (int i = 0; i < 8; i++) {
 		int w = (int)strlen(labs[i]);
 		if (i > 0) {
-			screen_put_rune(row, c, ' ', st);
+			screen_put_rune(row, c, (uint32_t)' ', st);
 			c++;
 		}
-		put_mnemonic(row, c, w, str_from_cstr(labs[i]), mnems[i], st);
+		put_mnemonic(row, c, w, ranged(labs[i], strlen(labs[i])), mnems[i], st);
 		c += w;
 	}
 }
@@ -457,7 +457,7 @@ enum { NowSoftCap = 7 };
 static void paint_footer(UiState* ui, int cols) {
 	int row = screen_rows() - 1;
 	TextStyle st = screen_style_header();
-	TextStyle a_hot = text_style_make(TermColorRed, text_style_bg(st), (uint16_t)TextStyleBold);
+	TextStyle a_hot = text_style_make(TermColorRed, text_style_bg(st), TextStyleBold);
 	char pre[64] = { 0 };
 	char a_bit[48] = { 0 };
 	char rest[192] = { 0 };

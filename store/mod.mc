@@ -115,7 +115,7 @@ static(char[..], bool) read_file_all(const char[..] path) {
 		if (n == 0) {
 			break;
 		}
-		if (!str_append(&data, ranged(chunk, n))) {
+		if (!str_append(&data, ranged(chunk, (size_t)n))) {
 			str_free(&data);
 			return (str_empty(), false);
 		}

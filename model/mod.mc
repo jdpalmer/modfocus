@@ -164,9 +164,9 @@ Task* (TaskStore* store).get(int index) {
 		/* Time + counter + mono bits — avoids multi-writer tN collisions. */
 		int64_t now = time(0);
 		int64_t mono = os_mono_ns();
-		unsigned seq = store.next_id & 0xffff;
+		unsigned seq = (unsigned)store.next_id & 0xffffu;
 		store.next_id++;
-		snprintf(idbuf, sizeof(idbuf), "t%08x%04x%04x", (unsigned)now, seq, (unsigned)(mono & 0xffff));
+		snprintf(idbuf, sizeof(idbuf), "t%08x%04x%04x", (unsigned)now, seq, (unsigned)mono & 0xffffu);
 		if (!field_set_cstr(&t.id, idbuf)) {
 			t.clear();
 			return false;
