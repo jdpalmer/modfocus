@@ -467,14 +467,19 @@ static void handle_normal_key(uint32_t key) {
 		ui_set_status(&g_app.ui, g_app.filter.show_complete ? "showing complete": "hiding complete");
 		return;
 	}
-	if (key == 'o') {
+	if (key == 'o' || key == 'O') {
 		/* Explicit reorder — edits leave list order alone so rows don't jump. */
 		char id[TaskIdCap] = { 0 };
 		capture_id(ranged(id, sizeof(id)), ui_selected_task(&g_app.ui));
-		g_app.store.sort();
+		if (key == 'O') {
+			g_app.store.sort_rev();
+			ui_set_status(&g_app.ui, "sorted rev");
+		} else {
+			g_app.store.sort();
+			ui_set_status(&g_app.ui, "sorted");
+		}
 		refresh_visible();
 		select_task_id(ranged(id, cstr_zlen(ranged(id, sizeof(id)))));
-		ui_set_status(&g_app.ui, "sorted");
 		return;
 	}
 	if (key == '/') {

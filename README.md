@@ -37,7 +37,7 @@ before the week swallows you.
 A long list stays usable when you can cut it down. Focus (`f`) on an `@name`,
 `#tag`, or `:now` / `:waiting` (status). Find (`/`) searches across fields.
 `S` cycles status backward. Sort (`o`) restores order: status, then Attn,
-then title.
+then title; `O` reverses that.
 
 Blue letters in the header and footer mark the shortcuts — the UI teaches
 itself as you go.
@@ -133,7 +133,7 @@ modfocus add --attn Charles --tag work review PR
 | `s` / `S` | Cycle status forward / back (skips Complete) |
 | `d` | Delete selected task |
 | `x` / `X` | Complete / show completed |
-| `o` | Sort |
+| `o` / `O` | Sort / reverse sort |
 | `t` / Enter | Edit title |
 | `a` | Edit Attn |
 | `n` | New task |

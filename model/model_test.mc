@@ -329,6 +329,23 @@ static int test_build_visible_focus() {
 	return 0;
 }
 
+static int test_sort_and_rev() {
+	TaskStore store = { 0 };
+	store.init();
+	int a = add_titled(&store, "zeta");
+	int b = add_titled(&store, "alpha");
+	assert(a >= 0 && b >= 0);
+	assert(store.set_status(a, "C:Soon"));
+	assert(store.set_status(b, "A:Inbox"));
+	store.sort();
+	assert(str_eq(store.tasks[0].title, "alpha"));
+	assert(str_eq(store.tasks[1].title, "zeta"));
+	store.sort_rev();
+	assert(str_eq(store.tasks[0].title, "zeta"));
+	assert(str_eq(store.tasks[1].title, "alpha"));
+	return 0;
+}
+
 int main() {
 	assert_eq(test_attn_space_split(), 0);
 	assert_eq(test_attn_comma_split(), 0);
@@ -345,5 +362,6 @@ int main() {
 	assert_eq(test_build_visible_text(), 0);
 	assert_eq(test_build_visible_status(), 0);
 	assert_eq(test_build_visible_focus(), 0);
+	assert_eq(test_sort_and_rev(), 0);
 	return 0;
 }

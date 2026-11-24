@@ -1184,7 +1184,7 @@ static int task_cmp(const Task* a, const Task* b) {
 	return str_cmp(a.title, b.title);
 }
 
-void (TaskStore* store).sort() {
+static void sort_dir(TaskStore* store, bool reverse) {
 	if (store.count < 2) {
 		return;
 	}
@@ -1192,12 +1192,28 @@ void (TaskStore* store).sort() {
 	for (int i = 1; i < store.count; i++) {
 		Task key = store.tasks[i];
 		int j = i - 1;
-		while (j >= 0 && task_cmp(&store.tasks[j], &key) > 0) {
+		while (j >= 0) {
+			int c = task_cmp(&store.tasks[j], &key);
+			if (reverse) {
+				c = -c;
+			}
+			if (c <= 0) {
+				break;
+			}
 			store.tasks[j + 1] = store.tasks[j];
 			j--;
 		}
 		store.tasks[j + 1] = key;
 	}
+}
+
+void (TaskStore* store).sort() {
+	sort_dir(store, false);
+}
+
+/* Inverse of sort: title → Attn → status. */
+void (TaskStore* store).sort_rev() {
+	sort_dir(store, true);
 }
 
 int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
