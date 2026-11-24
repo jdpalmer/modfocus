@@ -234,7 +234,7 @@ static bool seed_tutorial_tasks() {
 		{ "B:Now", "Press s to cycle status; keep Now small (footer warns past 7)", "" },
 		{ "C:Soon", "Press f then #tutorial to focus; / to find; again clears", "" },
 		{ "E:Waiting", "Waiting = ball in their court — Attn says who", "Ada" },
-		{ "G:Someday", "Press k to kill these when you are done exploring", "" },
+		{ "G:Someday", "Press d to delete these when you are done exploring", "" },
 	};
 	for (int i = 0; i < (int)(sizeof(rows) / sizeof(rows[0])); i++) {
 		Task t = { 0 };
@@ -428,13 +428,13 @@ static void handle_normal_key(uint32_t key) {
 		g_app.running = false;
 		return;
 	}
-	if (key == (uint32_t)TermKeyUp || key == ((uint32_t)TermCTL | (uint32_t)'P')) {
+	if (key == (uint32_t)TermKeyUp || key == 'k' || key == ((uint32_t)TermCTL | (uint32_t)'P')) {
 		if (g_app.ui.selected > 0) {
 			g_app.ui.selected--;
 		}
 		return;
 	}
-	if (key == (uint32_t)TermKeyDown || key == ((uint32_t)TermCTL | (uint32_t)'N')) {
+	if (key == (uint32_t)TermKeyDown || key == 'j' || key == ((uint32_t)TermCTL | (uint32_t)'N')) {
 		if (g_app.ui.selected + 1 < g_app.visible_count) {
 			g_app.ui.selected++;
 		}
@@ -547,7 +547,7 @@ static void handle_normal_key(uint32_t key) {
 		(void)save_db_quiet();
 		return;
 	}
-	if (key == 'k') {
+	if (key == 'd') {
 		g_app.kill_idx = idx;
 		begin_edit(EditKillConfirm, "are you sure? y/n ", "");
 		return;

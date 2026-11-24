@@ -67,7 +67,7 @@ modfocus add @Charles review PR #work
 #### First-run tutorial
 
 A new store opens with a few `#tutorial` tasks that show capture, status,
-focus, Waiting/Attn, and how to clear them. Kill with `k` when you’re done.
+focus, Waiting/Attn, and how to clear them. Delete with `d` when you’re done.
 
 #### One-line capture
 
@@ -128,10 +128,10 @@ modfocus add --attn Charles --tag work review PR
 
 | Key | Action |
 |-----|--------|
-| arrows / `C-n` / `C-p` | Move |
+| arrows / `j` `k` / `C-n` / `C-p` | Move |
 | `S-Up` / `S-Down` / PgUp / PgDn / `C-v` | Page |
 | `s` / `S` | Cycle status forward / back (skips Complete) |
-| `k` | Kill selected task |
+| `d` | Delete selected task |
 | `x` / `X` | Complete / show completed |
 | `o` | Sort |
 | `t` / Enter | Edit title |

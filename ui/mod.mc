@@ -410,18 +410,18 @@ static void put_hot_key(int row, int col, char key, TextStyle st) {
 
 static int footer_hints_width(bool focus_on, bool find_on, bool compact) {
 	if (compact) {
-		return (int)strlen("n f / o k x X q");
+		return (int)strlen("n f / o d x X q");
 	}
 	/* focus(5) vs unfocus(7); /find vs /clear same width */
 	(void)find_on;
 	int f_len = focus_on ? 7: 5;
-	/* new + focus|unfocus + /find + sort + kill + xdone + Xall + quit + gaps */
-	return 3 + 1 + f_len + 1 + 5 + 1 + 4 + 1 + 4 + 1 + 5 + 1 + 4 + 1 + 4;
+	/* new + focus|unfocus + /find + sort + del + xdone + Xall + quit + gaps */
+	return 3 + 1 + f_len + 1 + 5 + 1 + 4 + 1 + 3 + 1 + 5 + 1 + 4 + 1 + 4;
 }
 
 static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bool find_on, bool compact) {
 	if (compact) {
-		char keys[] = "n f / o k x X q";
+		char keys[] = "n f / o d x X q";
 		const char[..] keyv = ranged(keys, sizeof(keys) - 1);
 		int i = 0;
 		for (auto ch: keyv) {
@@ -437,9 +437,9 @@ static void paint_footer_hints(int row, int col, TextStyle st, bool focus_on, bo
 	const char* focus_lab = focus_on ? "unfocus": "focus";
 	const char* find_lab = find_on ? "/clear": "/find";
 	const char* labs[] = {
-		"new", focus_lab, find_lab, "sort", "kill", "xdone", "Xall", "quit" };
+		"new", focus_lab, find_lab, "sort", "del", "xdone", "Xall", "quit" };
 	char mnems[] = {
-		'n', 'f', '/', 'o', 'k', 'x', 'X', 'q' };
+		'n', 'f', '/', 'o', 'd', 'x', 'X', 'q' };
 	int c = col;
 	for (int i = 0; i < 8; i++) {
 		int w = (int)strlen(labs[i]);
