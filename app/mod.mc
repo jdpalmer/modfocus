@@ -347,11 +347,26 @@ static void apply_edit() {
 		return;
 	}
 	if (kind == EditFilterCc) {
-		/* One focus: @attn / bare → Attn; # → tag. */
+		/* One focus: :status / @attn / bare → Attn; # → tag. */
 		(void)str_set(&g_app.filter.cc, "");
 		(void)str_set(&g_app.filter.tag, "");
+		(void)str_set(&g_app.filter.status, "");
 		if (val_is_all(val)) {
 			ui_set_status(&g_app.ui, "focus cleared");
+		} else if (len(val) > 0 && val[0] == ':') {
+			pool p {
+				auto (st, ok) = model_parse_status_focus(&p, val);
+				if (!ok) {
+					ui_set_status(&g_app.ui, "unknown status");
+					refresh_visible();
+					return;
+				}
+				(void)str_set(&g_app.filter.status, st);
+				if (str_eq_cstr(st, "F:Complete")) {
+					g_app.filter.show_complete = true;
+				}
+				ui_set_status(&g_app.ui, "status focus set");
+			}
 		} else if (len(val) > 0 && val[0] == '#') {
 			(void)str_set(&g_app.filter.tag, val);
 			ui_set_status(&g_app.ui, "tag focus set");
@@ -486,15 +501,16 @@ static void handle_normal_key(uint32_t key) {
 	int idx = ui_selected_store_index(&g_app.ui);
 	Task* t = ui_selected_task(&g_app.ui);
 	if (key == 'f') {
-		/* Toggle: clear Attn or tag focus; otherwise prompt (Tab: Attn + #tags). */
-		if (len(g_app.filter.cc) != 0 || len(g_app.filter.tag) != 0) {
+		/* Toggle: clear Attn, tag, or status focus; otherwise prompt. */
+		if (len(g_app.filter.cc) != 0 || len(g_app.filter.tag) != 0 || len(g_app.filter.status) != 0) {
 			(void)str_set(&g_app.filter.cc, "");
 			(void)str_set(&g_app.filter.tag, "");
+			(void)str_set(&g_app.filter.status, "");
 			refresh_visible();
 			ui_set_status(&g_app.ui, "focus cleared");
 			return;
 		}
-		begin_edit(EditFilterCc, "focus (@attn or #tag): ", "");
+		begin_edit(EditFilterCc, "focus (@attn #tag :status): ", "");
 		return;
 	}
 	if (idx < 0 || t == NULL) {
@@ -502,6 +518,16 @@ static void handle_normal_key(uint32_t key) {
 	}
 	if (key == 's') {
 		if (!g_app.store.cycle_status(idx)) {
+			ui_set_status(&g_app.ui, "status failed");
+			return;
+		}
+		refresh_visible();
+		ui_set_status(&g_app.ui, t.status);
+		(void)save_db_quiet();
+		return;
+	}
+	if (key == 'S') {
+		if (!g_app.store.cycle_status_prev(idx)) {
 			ui_set_status(&g_app.ui, "status failed");
 			return;
 		}

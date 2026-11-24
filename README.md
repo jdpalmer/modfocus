@@ -34,9 +34,10 @@ before the week swallows you.
 
 ### See only what matters
 
-A long list stays usable when you can cut it down. Focus (`f`) on an `@name`
-or a `#tag` and everything else steps aside. Find (`/`) searches across
-fields. Sort (`o`) restores order: status, then Attn, then title.
+A long list stays usable when you can cut it down. Focus (`f`) on an `@name`,
+`#tag`, or `:now` / `:waiting` (status). Find (`/`) searches across fields.
+`S` cycles status backward. Sort (`o`) restores order: status, then Attn,
+then title.
 
 Blue letters in the header and footer mark the shortcuts — the UI teaches
 itself as you go.
@@ -129,7 +130,7 @@ modfocus add --attn Charles --tag work review PR
 |-----|--------|
 | arrows / `C-n` / `C-p` | Move |
 | `S-Up` / `S-Down` / PgUp / PgDn / `C-v` | Page |
-| `s` | Cycle status (skips Complete) |
+| `s` / `S` | Cycle status forward / back (skips Complete) |
 | `k` | Kill selected task |
 | `x` / `X` | Complete / show completed |
 | `o` | Sort |
@@ -137,7 +138,7 @@ modfocus add --attn Charles --tag work review PR
 | `a` | Edit Attn |
 | `n` | New task |
 | `/` | Find |
-| `f` | Focus |
+| `f` | Focus (`@attn`, `#tag`, or `:status`) |
 | `g` / `G` | Top / bottom |
 | `C-l` | Redraw |
 | `q` | Quit |

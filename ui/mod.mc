@@ -466,6 +466,7 @@ static void paint_footer(UiState* ui, int cols) {
 	int b_now = count_status(ui.store, "B:Now");
 	bool focus_on = ui.filter != NULL && len(ui.filter.cc) != 0;
 	bool tag_on = ui.filter != NULL && len(ui.filter.tag) != 0;
+	bool status_on = ui.filter != NULL && len(ui.filter.status) != 0;
 	bool find_on = ui.filter != NULL && len(ui.filter.text) != 0;
 	bool a_over = b_now > NowSoftCap;
 	bool compact = false;
@@ -543,6 +544,10 @@ static void paint_footer(UiState* ui, int cols) {
 				rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " #%.*s", (int)len(tg), ptr(tg));
 			}
 		}
+		if (status_on && rn < (int) sizeof(rest)) {
+			const char[..] stf = ui.filter.status;
+			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " :%.*s", (int)len(stf), ptr(stf));
+		}
 		if (ui.filter.show_complete && rn < (int) sizeof(rest)) {
 			rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " +C");
 		}
@@ -554,10 +559,10 @@ static void paint_footer(UiState* ui, int cols) {
 		rn += snprintf(rest + rn, sizeof(rest) - (size_t)rn, " %s", ui.mode_line);
 	}
 	(void)rn;
-	int right_cols = footer_hints_width(focus_on, find_on, false) + 1;
+	int right_cols = footer_hints_width(focus_on || status_on || tag_on, find_on, false) + 1;
 	if (cols - right_cols < 12) {
 		compact = true;
-		right_cols = footer_hints_width(focus_on, find_on, true) + 1;
+		right_cols = footer_hints_width(focus_on || status_on || tag_on, find_on, true) + 1;
 	}
 	int left_cols = cols - right_cols;
 	if (left_cols < 8) {
@@ -604,7 +609,7 @@ static void paint_footer(UiState* ui, int cols) {
 		if (c < left_cols) {
 			c = left_cols;
 		}
-		paint_footer_hints(row, c, st, focus_on, find_on, compact);
+		paint_footer_hints(row, c, st, focus_on || status_on || tag_on, find_on, compact);
 	}
 }
 

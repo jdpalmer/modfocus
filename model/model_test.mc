@@ -226,6 +226,40 @@ static int test_cycle_status_skips_complete() {
 	assert(store.set_status(at, "E:Waiting"));
 	assert(store.cycle_status(at));
 	assert(str_eq(store.tasks[at].status, "G:Someday"));
+	assert(store.cycle_status_prev(at));
+	assert(str_eq(store.tasks[at].status, "E:Waiting"));
+	return 0;
+}
+
+static int test_parse_status_focus() {
+	pool p {
+		auto (a, aok) = model_parse_status_focus(&p, ":now");
+		assert(aok && str_eq(a, "B:Now"));
+		auto (b, bok) = model_parse_status_focus(&p, "waiting");
+		assert(bok && str_eq(b, "E:Waiting"));
+		auto (c, cok) = model_parse_status_focus(&p, "A:Inbox");
+		assert(cok && str_eq(c, "A:Inbox"));
+		auto (_d, dok) = model_parse_status_focus(&p, ":nope");
+		(void)_d;
+		assert(!dok);
+	}
+	return 0;
+}
+
+static int test_build_visible_status() {
+	TaskStore store = { 0 };
+	ViewFilter f = { 0 };
+	int visible[8] = { 0 };
+	store.init();
+	f.init();
+	int a = add_titled(&store, "inbox");
+	int b = add_titled(&store, "now");
+	assert(a >= 0 && b >= 0);
+	assert(store.set_status(b, "B:Now"));
+	(void)str_set(&f.status, "B:Now");
+	int n = store.build_visible(&f, ranged(visible, 8));
+	assert_eq(n, 1);
+	assert_eq(visible[0], b);
 	return 0;
 }
 
@@ -307,7 +341,9 @@ int main() {
 	assert_eq(test_tag_complete(), 0);
 	assert_eq(test_complete_ambiguous_lcp(), 0);
 	assert_eq(test_cycle_status_skips_complete(), 0);
+	assert_eq(test_parse_status_focus(), 0);
 	assert_eq(test_build_visible_text(), 0);
+	assert_eq(test_build_visible_status(), 0);
 	assert_eq(test_build_visible_focus(), 0);
 	return 0;
 }

@@ -58,6 +58,8 @@ struct ViewFilter {
 	char[..] tag;
 	/* focus substring against tags field */
 	char[..] text;
+	/* Exact status when set (e.g. "B:Now"); independent of attn/tag. */
+	char[..] status;
 	bool show_complete;
 };
 
@@ -161,6 +163,7 @@ void (ViewFilter* f).init() {
 	str_free(&f.cc);
 	str_free(&f.tag);
 	str_free(&f.text);
+	str_free(&f.status);
 	memset(f, 0, sizeof(*f));
 	f.show_complete = false;
 }
@@ -390,11 +393,11 @@ Task* (TaskStore* store).get(int index) {
 	return true;
 }
 
-[[nodiscard]] bool (TaskStore* store).cycle_status(int index) {
+static bool cycle_status_dir(TaskStore* store, int index, int dir) {
 	Task* t = store.get(index);
 	int n = model_status_count();
 	int tries = 0;
-	if (t == NULL) {
+	if (t == NULL || (dir != 1 && dir != -1)) {
 		return false;
 	}
 	if (n <= 0) {
@@ -405,11 +408,105 @@ Task* (TaskStore* store).get(int index) {
 		i = 0;
 	}
 	do {
-		i = (i + 1) % n;
+		i = (i + dir) % n;
+		if (i < 0) {
+			i += n;
+		}
 		tries++;
 	}
 	while (tries < n && strcmp(g_statuses[i], "F:Complete") == 0);
 	return store.set_status(index, str_from_cstr(g_statuses[i]));
+}
+
+[[nodiscard]] bool (TaskStore* store).cycle_status(int index) {
+	return cycle_status_dir(store, index, 1);
+}
+
+[[nodiscard]] bool (TaskStore* store).cycle_status_prev(int index) {
+	return cycle_status_dir(store, index, -1);
+}
+
+/* Map ":now" / "now" / "B:Now" → canonical status; empty on unknown. */
+[[nodiscard]](char[..], bool) model_parse_status_focus([[region]] Pool* p, const char[..] raw) {
+	char[..] out = { 0 };
+	const char[..] s = raw;
+	size_t i = 0;
+	if (p == NULL || len(raw) == 0) {
+		return (str_empty(), false);
+	}
+	while (i < len(s) && (s[i] == ' ' || s[i] == '\t')) {
+		i++;
+	}
+	if (i < len(s) && s[i] == ':') {
+		i++;
+	}
+	while (i < len(s) && (s[i] == ' ' || s[i] == '\t')) {
+		i++;
+	}
+	s = s[i ..];
+	if (len(s) == 0) {
+		return (str_empty(), false);
+	}
+	/* Full vocabulary match first (A:Inbox, B:Now, …). */
+	if (model_status_ok(s)) {
+		if (!p.append(&out, s)) {
+			return (str_empty(), false);
+		}
+		return (out, true);
+	}
+	/* Short aliases. */
+	{
+		static const struct {
+			const char* alias;
+			const char* status;
+		} aliases[] = {
+			{ "inbox", "A:Inbox" },
+			{ "now", "B:Now" },
+			{ "soon", "C:Soon" },
+			{ "later", "D:Later" },
+			{ "waiting", "E:Waiting" },
+			{ "wait", "E:Waiting" },
+			{ "complete", "F:Complete" },
+			{ "done", "F:Complete" },
+			{ "someday", "G:Someday" },
+			{ "a", "A:Inbox" },
+			{ "b", "B:Now" },
+			{ "c", "C:Soon" },
+			{ "d", "D:Later" },
+			{ "e", "E:Waiting" },
+			{ "f", "F:Complete" },
+			{ "g", "G:Someday" },
+		};
+		for (int ai = 0; ai < (int)(sizeof(aliases) / sizeof(aliases[0])); ai++) {
+			const char[..] al = ranged(aliases[ai].alias, strlen(aliases[ai].alias));
+			if (len(s) != len(al)) {
+				continue;
+			}
+			bool match = true;
+			for (size_t k = 0; k < len(s); k++) {
+				char a = s[k];
+				char b = al[k];
+				if (a >= 'A' && a <= 'Z') {
+					a = (char)(a - 'A' + 'a');
+				}
+				if (b >= 'A' && b <= 'Z') {
+					b = (char)(b - 'A' + 'a');
+				}
+				if (a != b) {
+					match = false;
+					break;
+				}
+			}
+			if (!match) {
+				continue;
+			}
+			if (!p.append(&out, ranged(aliases[ai].status, strlen(aliases[ai].status)))) {
+				return (str_empty(), false);
+			}
+			return (out, true);
+		}
+	}
+	return (str_empty(), false);
 }
 
 [[nodiscard]] bool (TaskStore* store).set_title(int index, const char[..] title) {
@@ -1112,6 +1209,9 @@ int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
 	for (int i = 0; i < store.count && n < out_cap; i++) {
 		Task* t = &store.tasks[i];
 		if (!f.show_complete && str_eq_cstr(t.status, "F:Complete")) {
+			continue;
+		}
+		if (len(f.status) != 0 && !str_eq(t.status, f.status)) {
 			continue;
 		}
 		if (len(f.cc) != 0 && !ascii_icontains(t.cc, f.cc)) {
