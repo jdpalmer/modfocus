@@ -395,7 +395,7 @@ static int count_status(const TaskStore* store, const char[..] status) {
 		return 0;
 	}
 	for (auto t: store.tasks[0 ..(size_t)store.count]) {
-		if (str_eq(t.status, status)) {
+		if (t.status.eq(status)) {
 			n++;
 		}
 	}

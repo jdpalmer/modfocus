@@ -187,7 +187,7 @@ static int tomb_find_id(const TaskStore* store, const char[..] id) {
 		return -1;
 	}
 	for (int i = 0; i < store.tomb_count; i++) {
-		if (str_eq(store.tombs[i].id, id)) {
+		if (store.tombs[i].id.eq(id)) {
 			return i;
 		}
 	}
@@ -223,7 +223,7 @@ static void tomb_remove_at(TaskStore* store, int index) {
 	}
 	int at = tomb_find_id(store, id);
 	if (at >= 0) {
-		if (str_cmp(stamp, store.tombs[at].deleted) <= 0) {
+		if (stamp.cmp(store.tombs[at].deleted) <= 0) {
 			return true;
 		}
 		if (!field_set(&store.tombs[at].deleted, stamp)) {
@@ -261,7 +261,7 @@ bool (TaskStore* store).tomb_blocks(const char[..] id, const char[..] updated) {
 	if (len(updated) == 0) {
 		return true;
 	}
-	return str_cmp(store.tombs[at].deleted, updated) >= 0;
+	return store.tombs[at].deleted.cmp(updated) >= 0;
 }
 
 /* Kill: record tombstone then remove so sync cannot resurrect. */
@@ -304,7 +304,7 @@ void (TaskStore* store).tomb_prune() {
 		return;
 	}
 	for (int i = store.tomb_count - 1; i >= 0; i--) {
-		if (str_cmp(store.tombs[i].deleted, cutoff) < 0) {
+		if (store.tombs[i].deleted.cmp(cutoff) < 0) {
 			tomb_remove_at(store, i);
 		}
 	}
@@ -356,7 +356,7 @@ Task* (TaskStore* store).get(int index) {
 	/* A live task newer than its tombstone clears the delete marker. */
 	{
 		int ti = tomb_find_id(store, t.id);
-		if (ti >= 0 && str_cmp(t.updated, store.tombs[ti].deleted) > 0) {
+		if (ti >= 0 && t.updated.cmp(store.tombs[ti].deleted) > 0) {
 			tomb_remove_at(store, ti);
 		}
 	}
@@ -956,7 +956,7 @@ static bool attn_token_end(char c) {
 				dst[off++] = ' ';
 			}
 			dst[off++] = '@';
-			memcpy(ptr(dst) + off, ptr(attn) + start, n);
+			copy(dst[off .. off + n], attn[start .. start + n]);
 			off += n;
 			attn_names++;
 		}
@@ -968,14 +968,14 @@ static bool attn_token_end(char c) {
 		dst[off++] = ' ';
 	}
 	if (len(title) > 0) {
-		memcpy(ptr(dst) + off, ptr(title), len(title));
+		copy(dst[off .. off + len(title)], title);
 		off += len(title);
 	}
 	if (len(title) > 0 && len(tags) > 0) {
 		dst[off++] = ' ';
 	}
 	if (len(tags) > 0) {
-		memcpy(ptr(dst) + off, ptr(tags), len(tags));
+		copy(dst[off .. off + len(tags)], tags);
 		off += len(tags);
 	}
 	dst[off] = 0;
@@ -1177,11 +1177,11 @@ static int task_cmp(const Task* a, const Task* b) {
 	if (ra != rb) {
 		return ra - rb;
 	}
-	int c = str_cmp(a.cc, b.cc);
+	int c = a.cc.cmp(b.cc);
 	if (c != 0) {
 		return c;
 	}
-	return str_cmp(a.title, b.title);
+	return a.title.cmp(b.title);
 }
 
 static void sort_dir(TaskStore* store, bool reverse) {
@@ -1227,7 +1227,7 @@ int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
 		if (!f.show_complete && str_eq_cstr(t.status, "F:Complete")) {
 			continue;
 		}
-		if (len(f.status) != 0 && !str_eq(t.status, f.status)) {
+		if (len(f.status) != 0 && !t.status.eq(f.status)) {
 			continue;
 		}
 		if (len(f.cc) != 0 && !ascii_icontains(t.cc, f.cc)) {
@@ -1271,7 +1271,7 @@ int (TaskStore* store).build_visible(const ViewFilter* f, int[..] out) {
 	memset(&tmp, 0, sizeof(tmp));
 	{
 		int ti = tomb_find_id(store, t.id);
-		if (ti >= 0 && str_cmp(t.updated, store.tombs[ti].deleted) > 0) {
+		if (ti >= 0 && t.updated.cmp(store.tombs[ti].deleted) > 0) {
 			tomb_remove_at(store, ti);
 		}
 	}

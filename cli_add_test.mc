@@ -77,10 +77,10 @@ static int test_cli_add_flags() {
 			loaded.init();
 			assert(loaded.load(db));
 			assert_eq(loaded.count, 1);
-			assert(str_eq(loaded.tasks[0].title, "hello"));
-			assert(str_eq(loaded.tasks[0].tags, "#work #home #errand"));
-			assert(str_eq(loaded.tasks[0].cc, "Brian, Jessica"));
-			assert(str_eq(loaded.tasks[0].status, "A:Inbox"));
+			assert(loaded.tasks[0].title.eq("hello"));
+			assert(loaded.tasks[0].tags.eq("#work #home #errand"));
+			assert(loaded.tasks[0].cc.eq("Brian, Jessica"));
+			assert(loaded.tasks[0].status.eq("A:Inbox"));
 			assert(len(loaded.tasks[0].id) > 0);
 		}
 		(void)fs_remove(db);
@@ -108,9 +108,9 @@ static int test_cli_add_at_tokens() {
 			loaded.init();
 			assert(loaded.load(db));
 			assert_eq(loaded.count, 1);
-			assert(str_eq(loaded.tasks[0].title, "review PR"));
-			assert(str_eq(loaded.tasks[0].tags, "#work"));
-			assert(str_eq(loaded.tasks[0].cc, "Charles"));
+			assert(loaded.tasks[0].title.eq("review PR"));
+			assert(loaded.tasks[0].tags.eq("#work"));
+			assert(loaded.tasks[0].cc.eq("Charles"));
 		}
 		(void)fs_remove(db);
 	}
@@ -163,7 +163,7 @@ static int test_cli_add_creates_db() {
 			loaded.init();
 			assert(loaded.load(db));
 			assert_eq(loaded.count, 1);
-			assert(str_eq(loaded.tasks[0].title, "first"));
+			assert(loaded.tasks[0].title.eq("first"));
 		}
 		(void)fs_remove(db);
 	}

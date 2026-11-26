@@ -26,13 +26,13 @@ static int test_attn_space_split() {
 	int at = add_titled(&store, "x");
 	assert(at >= 0);
 	assert(store.set_cc(at, "Brian Jessica"));
-	assert(str_eq(store.tasks[at].cc, "Brian, Jessica"));
+	assert(store.tasks[at].cc.eq("Brian, Jessica"));
 	assert(store.set_cc(at, "  Ada   Lovelace  "));
-	assert(str_eq(store.tasks[at].cc, "Ada Lovelace"));
+	assert(store.tasks[at].cc.eq("Ada Lovelace"));
 	assert(store.set_cc(at, "@Charles"));
-	assert(str_eq(store.tasks[at].cc, "Charles"));
+	assert(store.tasks[at].cc.eq("Charles"));
 	assert(store.set_cc(at, "@Brian @Jessica"));
-	assert(str_eq(store.tasks[at].cc, "Brian, Jessica"));
+	assert(store.tasks[at].cc.eq("Brian, Jessica"));
 	return 0;
 }
 
@@ -42,9 +42,9 @@ static int test_attn_comma_split() {
 	int at = add_titled(&store, "x");
 	assert(at >= 0);
 	assert(store.set_cc(at, "Brian,  Jessica"));
-	assert(str_eq(store.tasks[at].cc, "Brian, Jessica"));
+	assert(store.tasks[at].cc.eq("Brian, Jessica"));
 	assert(store.set_cc(at, "Ann Marie, Bob"));
-	assert(str_eq(store.tasks[at].cc, "Ann Marie, Bob"));
+	assert(store.tasks[at].cc.eq("Ann Marie, Bob"));
 	return 0;
 }
 
@@ -54,7 +54,7 @@ static int test_tags_normalize() {
 	int at = add_titled(&store, "x");
 	assert(at >= 0);
 	assert(store.set_tags(at, "work, #home HOME"));
-	assert(str_eq(store.tasks[at].tags, "#work #home"));
+	assert(store.tasks[at].tags.eq("#work #home"));
 	return 0;
 }
 
@@ -62,20 +62,20 @@ static int test_parse_title_tags() {
 	pool p {
 		auto (title, tags, ok) = model_parse_title_tags(&p, "buy milk #home #errands");
 		assert(ok);
-		assert(str_eq(title, "buy milk"));
-		assert(str_eq(tags, "#home #errands"));
+		assert(title.eq("buy milk"));
+		assert(tags.eq("#home #errands"));
 	}
 	pool p2 {
 		auto (title, tags, ok) = model_parse_title_tags(&p2, "fix #12 stuck");
 		assert(ok);
-		assert(str_eq(title, "fix #12 stuck"));
+		assert(title.eq("fix #12 stuck"));
 		assert(len(tags) == 0);
 	}
 	pool p3 {
 		auto (title, tags, ok) = model_parse_title_tags(&p3, "#solo");
 		assert(ok);
 		assert(len(title) == 0);
-		assert(str_eq(tags, "#solo"));
+		assert(tags.eq("#solo"));
 	}
 	return 0;
 }
@@ -84,30 +84,30 @@ static int test_parse_task_line_at() {
 	pool p {
 		auto (title, tags, attn, ok) = model_parse_task_line(&p, "@Charles review PR #work");
 		assert(ok);
-		assert(str_eq(title, "review PR"));
-		assert(str_eq(tags, "#work"));
-		assert(str_eq(attn, "Charles"));
+		assert(title.eq("review PR"));
+		assert(tags.eq("#work"));
+		assert(attn.eq("Charles"));
 	}
 	pool p2 {
 		auto (title, tags, attn, ok) = model_parse_task_line(&p2, "@Brian @Jessica buy milk #home");
 		assert(ok);
-		assert(str_eq(title, "buy milk"));
-		assert(str_eq(tags, "#home"));
-		assert(str_eq(attn, "Brian Jessica"));
+		assert(title.eq("buy milk"));
+		assert(tags.eq("#home"));
+		assert(attn.eq("Brian Jessica"));
 	}
 	pool p3 {
 		auto (title, tags, attn, ok) = model_parse_task_line(&p3, "plain @Ada");
 		(void)tags;
 		assert(ok);
-		assert(str_eq(title, "plain"));
-		assert(str_eq(attn, "Ada"));
+		assert(title.eq("plain"));
+		assert(attn.eq("Ada"));
 	}
 	pool p4 {
 		auto (title, tags, attn, ok) = model_parse_task_line(&p4, "user@host keep");
 		(void)tags;
 		assert(ok);
 		/* Glued @ is not a token (email-ish). */
-		assert(str_eq(title, "user@host keep"));
+		assert(title.eq("user@host keep"));
 		assert(len(attn) == 0);
 	}
 	return 0;
@@ -125,8 +125,8 @@ static int test_title_line_apply() {
 		assert(ok && len(title) > 0);
 		assert(store.set_title(at, title));
 		assert(store.set_tags(at, tags));
-		assert(str_eq(store.tasks[at].title, "buy milk"));
-		assert(str_eq(store.tasks[at].tags, "#home"));
+		assert(store.tasks[at].title.eq("buy milk"));
+		assert(store.tasks[at].tags.eq("#home"));
 	}
 	pool p2 {
 		auto (title, tags, ok) = model_parse_title_tags(&p2, "plain title");
@@ -134,7 +134,7 @@ static int test_title_line_apply() {
 		assert(len(tags) == 0);
 		assert(store.set_title(at, title));
 		assert(store.set_tags(at, tags));
-		assert(str_eq(store.tasks[at].title, "plain title"));
+		assert(store.tasks[at].title.eq("plain title"));
 		assert(len(store.tasks[at].tags) == 0);
 	}
 	pool p3 {
@@ -147,7 +147,7 @@ static int test_title_line_apply() {
 		auto (title, tags, ok) = model_parse_title_tags(&p4, "#only");
 		assert(ok);
 		assert(len(title) == 0);
-		assert(str_eq(tags, "#only"));
+		assert(tags.eq("#only"));
 	}
 	return 0;
 }
@@ -155,11 +155,11 @@ static int test_title_line_apply() {
 static int test_format_title_tags() {
 	char buf[128] = { 0 };
 	assert(model_format_title_tags("hello", "#a #b", ranged(buf, sizeof(buf))));
-	assert(str_eq(ranged(buf, strlen(buf)), "hello #a #b"));
+	assert(ranged(buf, strlen(buf)).eq("hello #a #b"));
 	assert(model_format_title_tags("only", "", ranged(buf, sizeof(buf))));
-	assert(str_eq(ranged(buf, strlen(buf)), "only"));
+	assert(ranged(buf, strlen(buf)).eq("only"));
 	assert(model_format_task_line("review", "#work", "Brian, Jessica", ranged(buf, sizeof(buf))));
-	assert(str_eq(ranged(buf, strlen(buf)), "@Brian, @Jessica review #work"));
+	assert(ranged(buf, strlen(buf)).eq("@Brian, @Jessica review #work"));
 	return 0;
 }
 
@@ -173,9 +173,9 @@ static int test_attn_complete() {
 	assert(store.set_cc(a, "Brian, Jessica"));
 	assert(store.set_cc(b, "Charles"));
 	assert(store.attn_complete("Br", ranged(out, sizeof(out))));
-	assert(str_eq(ranged(out, strlen(out)), "Brian"));
+	assert(ranged(out, strlen(out)).eq("Brian"));
 	assert(store.attn_complete("C", ranged(out, sizeof(out))));
-	assert(str_eq(ranged(out, strlen(out)), "Charles"));
+	assert(ranged(out, strlen(out)).eq("Charles"));
 	assert(!store.attn_complete("Zz", ranged(out, sizeof(out))));
 	return 0;
 }
@@ -188,9 +188,9 @@ static int test_tag_complete() {
 	assert(at >= 0);
 	assert(store.set_tags(at, "#home #work"));
 	assert(store.tag_complete("#ho", ranged(out, sizeof(out))));
-	assert(str_eq(ranged(out, strlen(out)), "#home"));
+	assert(ranged(out, strlen(out)).eq("#home"));
 	assert(store.tag_complete("wo", ranged(out, sizeof(out))));
-	assert(str_eq(ranged(out, strlen(out)), "#work"));
+	assert(ranged(out, strlen(out)).eq("#work"));
 	return 0;
 }
 
@@ -205,11 +205,11 @@ static int test_complete_ambiguous_lcp() {
 	assert(store.set_cc(a, "Brian"));
 	assert(store.set_cc(b, "Bridget"));
 	assert(store.attn_complete("B", ranged(out, sizeof(out))));
-	assert(str_eq(ranged(out, strlen(out)), "Bri"));
+	assert(ranged(out, strlen(out)).eq("Bri"));
 	assert(!store.attn_complete("Bri", ranged(out, sizeof(out))));
 	assert(store.set_tags(a, "#work #workshop"));
 	assert(store.tag_complete("#w", ranged(out, sizeof(out))));
-	assert(str_eq(ranged(out, strlen(out)), "#work"));
+	assert(ranged(out, strlen(out)).eq("#work"));
 	assert(!store.tag_complete("#work", ranged(out, sizeof(out))));
 	return 0;
 }
@@ -219,26 +219,26 @@ static int test_cycle_status_skips_complete() {
 	store.init();
 	int at = add_titled(&store, "x");
 	assert(at >= 0);
-	assert(str_eq(store.tasks[at].status, "A:Inbox"));
+	assert(store.tasks[at].status.eq("A:Inbox"));
 	assert(store.cycle_status(at));
-	assert(str_eq(store.tasks[at].status, "B:Now"));
+	assert(store.tasks[at].status.eq("B:Now"));
 	/* Walk until Waiting, then next should be Someday (skip Complete). */
 	assert(store.set_status(at, "E:Waiting"));
 	assert(store.cycle_status(at));
-	assert(str_eq(store.tasks[at].status, "G:Someday"));
+	assert(store.tasks[at].status.eq("G:Someday"));
 	assert(store.cycle_status_prev(at));
-	assert(str_eq(store.tasks[at].status, "E:Waiting"));
+	assert(store.tasks[at].status.eq("E:Waiting"));
 	return 0;
 }
 
 static int test_parse_status_focus() {
 	pool p {
 		auto (a, aok) = model_parse_status_focus(&p, ":now");
-		assert(aok && str_eq(a, "B:Now"));
+		assert(aok && a.eq("B:Now"));
 		auto (b, bok) = model_parse_status_focus(&p, "waiting");
-		assert(bok && str_eq(b, "E:Waiting"));
+		assert(bok && b.eq("E:Waiting"));
 		auto (c, cok) = model_parse_status_focus(&p, "A:Inbox");
-		assert(cok && str_eq(c, "A:Inbox"));
+		assert(cok && c.eq("A:Inbox"));
 		auto (_d, dok) = model_parse_status_focus(&p, ":nope");
 		(void)_d;
 		assert(!dok);
@@ -338,11 +338,11 @@ static int test_sort_and_rev() {
 	assert(store.set_status(a, "C:Soon"));
 	assert(store.set_status(b, "A:Inbox"));
 	store.sort();
-	assert(str_eq(store.tasks[0].title, "alpha"));
-	assert(str_eq(store.tasks[1].title, "zeta"));
+	assert(store.tasks[0].title.eq("alpha"));
+	assert(store.tasks[1].title.eq("zeta"));
 	store.sort_rev();
-	assert(str_eq(store.tasks[0].title, "zeta"));
-	assert(str_eq(store.tasks[1].title, "alpha"));
+	assert(store.tasks[0].title.eq("zeta"));
+	assert(store.tasks[1].title.eq("alpha"));
 	return 0;
 }
 

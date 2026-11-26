@@ -134,10 +134,10 @@ static int test_save_load_roundtrip() {
 		loaded.init();
 		assert(loaded.load(db));
 		assert_eq(loaded.count, 1);
-		assert(str_eq(loaded.tasks[0].title, "milk"));
-		assert(str_eq(loaded.tasks[0].cc, "Brian, Jessica"));
-		assert(str_eq(loaded.tasks[0].tags, "#home #errand"));
-		assert(str_eq(loaded.tasks[0].status, "A:Inbox"));
+		assert(loaded.tasks[0].title.eq("milk"));
+		assert(loaded.tasks[0].cc.eq("Brian, Jessica"));
+		assert(loaded.tasks[0].tags.eq("#home #errand"));
+		assert(loaded.tasks[0].status.eq("A:Inbox"));
 		assert(len(loaded.tasks[0].id) > 0);
 		(void)fs_remove(db);
 	}
@@ -164,13 +164,13 @@ static int test_merge_lww() {
 	assert(str_set(&incoming.tasks[b].cc, "Ada"));
 	assert(local.merge(&incoming));
 	assert_eq(local.count, 1);
-	assert(str_eq(local.tasks[0].title, "new title"));
-	assert(str_eq(local.tasks[0].cc, "Ada"));
+	assert(local.tasks[0].title.eq("new title"));
+	assert(local.tasks[0].cc.eq("Ada"));
 	/* Equal updated keeps local. */
 	assert(str_set(&incoming.tasks[b].title, "ignored"));
 	assert(str_set(&incoming.tasks[b].updated, "2021-06-01T12:00:00Z"));
 	assert(!local.merge(&incoming));
-	assert(str_eq(local.tasks[0].title, "new title"));
+	assert(local.tasks[0].title.eq("new title"));
 	/* Incoming-only id is added. */
 	int c = add_titled(&incoming, "extra");
 	assert(c >= 0);
@@ -205,7 +205,7 @@ static int test_merge_tombstone_blocks_resurrect() {
 	assert(str_set(&incoming.tasks[b].updated, "2099-01-01T00:00:00Z"));
 	assert(local.merge(&incoming));
 	assert_eq(local.count, 1);
-	assert(str_eq(local.tasks[0].title, "reborn"));
+	assert(local.tasks[0].title.eq("reborn"));
 	return 0;
 }
 
@@ -271,8 +271,8 @@ static int test_merge_local_newer() {
 	assert(str_set(&incoming.tasks[b].cc, "Remote"));
 	assert(!local.merge(&incoming));
 	assert_eq(local.count, 1);
-	assert(str_eq(local.tasks[0].title, "local wins"));
-	assert(str_eq(local.tasks[0].cc, "Local"));
+	assert(local.tasks[0].title.eq("local wins"));
+	assert(local.tasks[0].cc.eq("Local"));
 	return 0;
 }
 
@@ -318,8 +318,8 @@ static int test_next_id_after_load() {
 		assert(c >= 0);
 		assert(len(loaded.tasks[c].id) > 1);
 		assert(loaded.tasks[c].id[0] == 't');
-		assert(!str_eq(loaded.tasks[c].id, "t5"));
-		assert(!str_eq(loaded.tasks[c].id, "t12"));
+		assert(!loaded.tasks[c].id.eq("t5"));
+		assert(!loaded.tasks[c].id.eq("t12"));
 		(void)fs_remove(db);
 	}
 	return 0;
@@ -350,8 +350,8 @@ static int test_import_file() {
 		store.init();
 		assert(store_import_file(&store, src, dst));
 		assert_eq(store.count, 1);
-		assert(str_eq(store.tasks[0].title, "from seed"));
-		assert(str_eq(store.tasks[0].id, "t42"));
+		assert(store.tasks[0].title.eq("from seed"));
+		assert(store.tasks[0].id.eq("t42"));
 		{
 			auto (info, ok) = fs_stat(dst);
 			assert(ok && info.kind == KindFile);
@@ -362,13 +362,13 @@ static int test_import_file() {
 		assert(seed.save(src));
 		assert(store_import_file(&store, src, dst));
 		assert_eq(store.count, 1);
-		assert(str_eq(store.tasks[0].title, "updated seed"));
+		assert(store.tasks[0].title.eq("updated seed"));
 		{
 			TaskStore loaded = { 0 };
 			loaded.init();
 			assert(loaded.load(dst));
 			assert_eq(loaded.count, 1);
-			assert(str_eq(loaded.tasks[0].title, "updated seed"));
+			assert(loaded.tasks[0].title.eq("updated seed"));
 		}
 		(void)fs_remove(src);
 		(void)fs_remove(dst);
@@ -401,9 +401,9 @@ static int test_backup_rotate() {
 		assert(store.save(db));
 		/* Second save copies prior live → bak.1 (live stays until atomic replace). */
 		assert(load_title(bak1, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "one"));
+		assert(ranged(title, strlen(title)).eq("one"));
 		assert(load_title(db, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "two"));
+		assert(ranged(title, strlen(title)).eq("two"));
 		assert(store.set_title(at, "three"));
 		assert(store.save(db));
 		/* Within the hour: no new generation; bak.1 stays "one". */
@@ -412,19 +412,19 @@ static int test_backup_rotate() {
 			assert(!ok || info.kind != KindFile);
 		}
 		assert(load_title(bak1, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "one"));
+		assert(ranged(title, strlen(title)).eq("one"));
 		assert(load_title(db, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "three"));
+		assert(ranged(title, strlen(title)).eq("three"));
 		/* Age bak.1 so the next save rotates again. */
 		assert(age_file(bak1, BackupMinAgeSec + 60));
 		assert(store.set_title(at, "four"));
 		assert(store.save(db));
 		assert(load_title(bak2, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "one"));
+		assert(ranged(title, strlen(title)).eq("one"));
 		assert(load_title(bak1, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "three"));
+		assert(ranged(title, strlen(title)).eq("three"));
 		assert(load_title(db, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "four"));
+		assert(ranged(title, strlen(title)).eq("four"));
 		(void)fs_remove(bak2);
 		(void)fs_remove(bak1);
 		(void)fs_remove(db);
@@ -456,7 +456,7 @@ static int test_recover_primary() {
 		}
 		assert(store_recover_primary(db));
 		assert(load_title(db, ranged(title, sizeof(title))));
-		assert(str_eq(ranged(title, strlen(title)), "safe"));
+		assert(ranged(title, strlen(title)).eq("safe"));
 		(void)fs_remove(bak1);
 		(void)fs_remove(db);
 	}
@@ -474,7 +474,7 @@ static int test_default_path_mfdb() {
 		defer(void)os_set_env("MFDB", "");
 		auto (path, ok) = store_default_path(&p);
 		assert(ok);
-		assert(str_eq(path, db));
+		assert(path.eq(db));
 	}
 	return 0;
 }

@@ -73,7 +73,7 @@ static void select_task_id(const char[..] id) {
 	}
 	for (; i < g_app.visible_count; i++) {
 		Task* t = g_app.store.get(g_app.visible[i]);
-		if (t != NULL && str_eq(t.id, id)) {
+		if (t != NULL && t.id.eq(id)) {
 			g_app.ui.selected = i;
 			ui_clamp(&g_app.ui);
 			return;
@@ -191,7 +191,7 @@ static void attn_to_at_prefill(const char[..] cc, char[..] dst) {
 				break;
 			}
 			dst[off++] = '@';
-			memcpy(ptr(dst) + off, ptr(cc) + start, n);
+			copy(dst[off .. off + n], cc[start .. start + n]);
 			off += n;
 			dst[off] = 0;
 		}
@@ -217,7 +217,7 @@ static void do_kill(int idx) {
 }
 
 static bool val_is_all(const char[..] val) {
-	return len(val) == 0 || str_eq(val, "*") || str_eq(val, "all");
+	return len(val) == 0 || val.eq("*") || val.eq("all");
 }
 
 /*
@@ -821,7 +821,7 @@ static bool join_title_args(const char[..][..] args, size_t from, char[..] dst) 
 			off++;
 		}
 		if (n > 0) {
-			memcpy(ptr(dst) + off, ptr(a), n);
+			copy(dst[off .. off + n], a[0 .. n]);
 			off += n;
 		}
 		dst[off] = 0;
@@ -866,7 +866,7 @@ static bool parse_add_args(const char[..][..] args, size_t i) {
 	g_app.add_tags[0] = 0;
 	for (; i < len(args); i++) {
 		const char[..] a = args[i];
-		if (str_eq(a, "--attn") || str_eq(a, "-a")) {
+		if (a.eq("--attn") || a.eq("-a")) {
 			i++;
 			if (i >= len(args)) {
 				fprintf(stderr, "modfocus: --attn needs a name\n");
@@ -879,7 +879,7 @@ static bool parse_add_args(const char[..][..] args, size_t i) {
 			(void)cstr_write(ranged(g_app.add_attn, sizeof(g_app.add_attn)), args[i]);
 			continue;
 		}
-		if (str_eq(a, "--tag") || str_eq(a, "-t")) {
+		if (a.eq("--tag") || a.eq("-t")) {
 			i++;
 			if (i >= len(args)) {
 				fprintf(stderr, "modfocus: --tag needs a name\n");
@@ -913,11 +913,11 @@ static(bool, int) parse_args(const char[..][..] args, char[..] import_path) {
 	}
 	for (; i < len(args); i++) {
 		const char[..] a = args[i];
-		if (str_eq(a, "--help") || str_eq(a, "-h")) {
+		if (a.eq("--help") || a.eq("-h")) {
 			usage();
 			return (false, 0);
 		}
-		if (str_eq(a, "--db")) {
+		if (a.eq("--db")) {
 			i++;
 			if (i >= len(args)) {
 				fprintf(stderr, "modfocus: --db needs a path\n");
@@ -926,7 +926,7 @@ static(bool, int) parse_args(const char[..][..] args, char[..] import_path) {
 			(void)cstr_write(ranged(g_app.db_path, sizeof(g_app.db_path)), args[i]);
 			continue;
 		}
-		if (str_eq(a, "--import")) {
+		if (a.eq("--import")) {
 			i++;
 			if (i >= len(args) || ptr(import_path) == NULL) {
 				fprintf(stderr, "modfocus: --import needs a path\n");
@@ -936,7 +936,7 @@ static(bool, int) parse_args(const char[..][..] args, char[..] import_path) {
 			g_app.import_only = true;
 			continue;
 		}
-		if (str_eq(a, "add")) {
+		if (a.eq("add")) {
 			if (g_app.import_only) {
 				fprintf(stderr, "modfocus: add and --import cannot be combined\n");
 				return (false, 1);

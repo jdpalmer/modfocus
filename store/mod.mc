@@ -87,7 +87,7 @@ static const char[..] obj_str(const JsonValue* obj, const char* key) {
 }
 
 [[nodiscard]] bool store_ensure_parent_dir(const char[..] db_path) {
-	const char[..] parent = path_dir(db_path);
+	const char[..] parent = db_path.dir();
 	if (len(parent) == 0) {
 		return true;
 	}
@@ -408,7 +408,7 @@ static int store_find_id(const TaskStore* store, const char[..] id) {
 		return -1;
 	}
 	for (int i = 0; i < store.count; i++) {
-		if (str_eq(store.tasks[i].id, id)) {
+		if (store.tasks[i].id.eq(id)) {
 			return i;
 		}
 	}
@@ -425,7 +425,7 @@ static int updated_cmp(const char[..] a, const char[..] b) {
 	if (len(b) == 0) {
 		return 1;
 	}
-	return str_cmp(a, b);
+	return a.cmp(b);
 }
 
 [[nodiscard]] bool (TaskStore* local).merge(const TaskStore* incoming) {
@@ -443,7 +443,7 @@ static int updated_cmp(const char[..] a, const char[..] b) {
 		}
 		ti = -1;
 		for (int j = 0; j < local.tomb_count; j++) {
-			if (str_eq(local.tombs[j].id, src.id)) {
+			if (local.tombs[j].id.eq(src.id)) {
 				ti = j;
 				break;
 			}
